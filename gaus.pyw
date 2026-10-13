@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -3444,10 +3444,12 @@ class Controller:
         item = pystray.MenuItem
 
         def accounts_menu():  # type: ignore[no-untyped-def]
+            def make(aid: str):  # type: ignore[no-untyped-def]
+                # pystray only accepts callbacks taking (icon, item) - no default arguments
+                return (lambda _i, _it: self._tray_switch(aid)), (lambda _it: aid == self.cfg.active)
             for a in self.cfg.tree():
-                yield item(a["name"] + ("" if a["enabled"] else " (off)"),
-                           lambda _i, _it, aid=a["id"]: self._tray_switch(aid),
-                           checked=lambda _it, aid=a["id"]: aid == self.cfg.active, radio=True)
+                action, is_on = make(a["id"])
+                yield item(a["name"] + ("" if a["enabled"] else " (off)"), action, checked=is_on, radio=True)
 
         menu = pystray.Menu(
             item("Open", lambda _i, _it: self.show_window(), default=True),
@@ -3536,7 +3538,17 @@ def main() -> int:
         if photos.count(g["appid"]) < MIN_GAME_PHOTOS or no_official:
             photos.request(g["appid"])
     engine.start()
-    ctl.tray.run_detached()
+
+    def tray_main() -> None:
+        try:
+            def ready(icon: Any) -> None:
+                icon.visible = True
+                log("Tray icon is visible (look for it in the taskbar's hidden-icons area)")
+            ctl.tray.run(ready)
+        except Exception:
+            log("The tray icon could not start:\n" + traceback.format_exc())
+
+    threading.Thread(target=tray_main, daemon=True, name="tray").start()
     threading.Thread(target=ctl.background_loop, daemon=True, name="app-updates").start()
 
     def boot() -> None:
