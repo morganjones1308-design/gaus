@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.3"
+APP_VERSION = "1.4"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -3531,7 +3531,9 @@ def main() -> int:
 
     _s, games = cfg.snapshot()
     for g in games:
-        if photos.count(g["appid"]) < MIN_GAME_PHOTOS:
+        no_official = g.get("launcher") == "steam" and not any(
+            e.get("source") == STEAM_SRC for e in load_index(g["appid"]))
+        if photos.count(g["appid"]) < MIN_GAME_PHOTOS or no_official:
             photos.request(g["appid"])
     engine.start()
     ctl.tray.run_detached()
