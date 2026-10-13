@@ -357,6 +357,10 @@ async function editGame() {
   $("#gm-err").textContent = ""; gmDlg.showModal(); $("#gm-weekly").focus();
 }
 $("#g-edit").onclick = editGame;
+$("#gm-images").onclick = (e) => busy(e.currentTarget, async () => {
+  const r = await api.add_images(gmRow.lid, gmRow.appid);
+  if (r.error) toast(r.error, true); else if (r.added) toast(`Added ${r.added} image${r.added > 1 ? "s" : ""}` + (r.skipped ? ` (${r.skipped} skipped: too small or not a picture)` : "")); else if (r.skipped) toast("Those images were too small or not pictures (at least 640×360).", true);
+});
 $("#dlg-game form").addEventListener("submit", async (e) => {
   e.preventDefault();
   await busy($("#gm-ok"), async () => {

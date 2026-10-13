@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.2"
+APP_VERSION = "1.3"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -106,6 +106,9 @@ BUSY_MASK = (2 | 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 65536 | 131072 | 26
 PENDING_MASK = 2 | 256 | 1024 | 1048576 | 2097152
 
 MIN_GAME_PHOTOS = 8
+MIN_SLIDES = 3                  # fewer own photos than this and generic scenery is mixed in
+STEAM_SRC = "Steam"
+OWN_SRC = "Your PC"
 GENERIC_TARGET = 16
 GENERIC_QUERIES = [
     "city skyline at night", "neon lights city street", "sunset over the ocean",
@@ -1267,7 +1270,7 @@ def photo_entries(key: Any) -> list[dict[str, Any]]:
 
 def get_slides(appid: int) -> list[dict[str, Any]]:
     entries = photo_entries(appid)
-    if len(entries) < MIN_GAME_PHOTOS:
+    if len(entries) < MIN_SLIDES:
         entries += photo_entries(GENERIC_KEY)
     random.shuffle(entries)
     return entries
@@ -1292,14 +1295,99 @@ def download_image(url: str, dest_dir: Path) -> Optional[str]:
     return name
 
 
-def fetch_pool(key: Any, queries: list[str], target: int, label: str, reset: bool = False) -> int:
-    """Download photos for the given queries into photos/<key>/. Returns how many are stored."""
+def steam_art(appid: int) -> list[dict[str, Any]]:
+    """The game's own artwork from its Steam store page: hero and background art, then the screenshots."""
+    raw = http_get(f"https://store.steampowered.com/api/appdetails?appids={appid}&l=english", timeout=20)
+    node = (json.loads(raw.decode("utf-8", "replace")) or {}).get(str(appid)) or {}
+    data = node.get("data") or {}
+    devs = ", ".join(str(x) for x in (data.get("developers") or [])) or "the developer"
+    out: list[dict[str, Any]] = []
+
+    def add(url: Any, title: str) -> None:
+        if url:
+            out.append({"page": str(url).split("?")[0], "download": str(url), "title": title, "author": devs,
+                        "license": "Official game art", "license_url": "", "source": STEAM_SRC})
+
+    add(f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg", "Official hero art")
+    add(data.get("background_raw"), "Official background art")
+    for i, shot in enumerate(data.get("screenshots") or []):
+        add(shot.get("path_full"), f"Official screenshot {i + 1}")
+    return out
+
+
+def import_image(src: Path, dest_dir: Path) -> Optional[str]:
+    """Copy one of the person's own pictures into a game's photo folder (as a JPEG)."""
+    from PIL import Image  # Pillow
+    try:
+        img = Image.open(src)
+        img.load()
+    except Exception:
+        return None
+    if img.width < 640 or img.height < 360:
+        return None
+    if img.width > 2200:
+        img = img.resize((1920, max(1, round(img.height * 1920 / img.width))), Image.LANCZOS)
+    img = img.convert("RGB")
+    name = "own_" + hashlib.sha1(f"{src}|{src.stat().st_mtime_ns}".encode("utf-8")).hexdigest()[:12] + ".jpg"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    img.save(dest_dir / name, "JPEG", quality=90)
+    return name
+
+
+def fetch_pool(key: Any, queries: list[str], target: int, label: str, reset: bool = False,
+               steam_appid: Optional[int] = None) -> int:
+    """Download photos for a game into photos/<key>/. Steam games get their official artwork first; other
+    photos are only a fallback. Pictures the person added themselves are never deleted. Returns how many are stored."""
     d = photo_dir(key)
     if reset and d.exists():
-        shutil.rmtree(d, ignore_errors=True)
+        keep = [e for e in load_index(key) if e.get("source") == OWN_SRC and (d / str(e.get("file", ""))).exists()]
+        keep_files = {str(e["file"]) for e in keep} | {"index.json"}
+        for f in d.iterdir():
+            if f.name not in keep_files:
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        write_json(d / "index.json", keep)
     d.mkdir(parents=True, exist_ok=True)
     index = [e for e in load_index(key) if (d / str(e.get("file", ""))).exists()]
     have = {e.get("page") for e in index}
+    if steam_appid:
+        steam_n = sum(1 for e in index if e.get("source") == STEAM_SRC)
+        if steam_n < target:
+            try:
+                art = steam_art(steam_appid)
+            except Exception as exc:
+                log(f"Steam artwork lookup for {label} failed: {exc!r}")
+                art = []
+            for c in art:
+                if steam_n >= target:
+                    break
+                if c["page"] in have:
+                    continue
+                try:
+                    name = download_image(c["download"], d)
+                except Exception as exc:
+                    log(f"Steam artwork download failed: {exc!r}")
+                    continue
+                if not name:
+                    continue
+                have.add(c["page"])
+                steam_n += 1
+                index.append({"file": name, "title": c["title"], "author": c["author"], "license": c["license"],
+                              "license_url": c["license_url"], "page": c["page"], "source": STEAM_SRC})
+                write_json(d / "index.json", index)
+        if steam_n >= MIN_GAME_PHOTOS:      # real game art found: drop any stock photos picked up earlier
+            for e in index:
+                if e.get("source") not in (STEAM_SRC, OWN_SRC):
+                    try:
+                        (d / str(e["file"])).unlink()
+                    except OSError:
+                        pass
+            index = [e for e in index if e.get("source") in (STEAM_SRC, OWN_SRC)]
+            write_json(d / "index.json", index)
+            log(f"Photos for {label}: {len(index)} stored (official artwork)")
+            return len(index)
     if len(index) >= target:
         return len(index)
 
@@ -1385,7 +1473,8 @@ class PhotoManager:
                     target = int(settings["photos_per_game"])
                     queries = game.get("photo_keywords") or [game["name"]]
                     log(f"Fetching open-licensed photos for {game['name']}...")
-                    n = fetch_pool(appid, queries, target, game["name"], reset=force)
+                    n = fetch_pool(appid, queries, target, game["name"], reset=force,
+                                   steam_appid=appid if game.get("launcher") == "steam" else None)
                     if n < MIN_GAME_PHOTOS and len(photo_entries(GENERIC_KEY)) < GENERIC_TARGET:
                         log(f"Only {n} game-specific photos found - adding generic city/landscape photos")
                         fetch_pool(GENERIC_KEY, GENERIC_QUERIES, GENERIC_TARGET, "generic pool")
@@ -2468,6 +2557,10 @@ class Api:
         return self._ctl.preview(int(appid))
 
     @_api
+    def add_images(self, lid: str, appid: int) -> dict[str, Any]:
+        return self._ctl.add_images(int(appid))
+
+    @_api
     def refresh_photos(self, appid: int) -> dict[str, Any]:
         self._ctl.photos.request(int(appid), force=True)
         return {"ok": True}
@@ -3006,6 +3099,42 @@ class Controller:
             shutil.rmtree(photo_dir(appid), ignore_errors=True)
         log(f"Removed game {g['name']}")
         return self.reply()
+
+    def add_images(self, appid: int) -> dict[str, Any]:
+        w = self.main
+        if w is None or webview is None:
+            return {"added": 0}
+        fd = getattr(webview, "FileDialog", None)
+        res = w.create_file_dialog(fd.OPEN if fd else webview.OPEN_DIALOG, allow_multiple=True,
+                                   file_types=("Images (*.jpg;*.jpeg;*.png;*.webp;*.bmp)", "All files (*.*)"))
+        if not res:
+            return {"added": 0}
+        return self.import_images([Path(p) for p in res], appid)
+
+    def import_images(self, paths: list[Path], appid: int) -> dict[str, Any]:
+        d = photo_dir(appid)
+        index = load_index(appid)
+        have = {e.get("page") for e in index}
+        added = 0
+        for p in paths:
+            page = "file:" + str(p)
+            if page in have:
+                continue
+            try:
+                name = import_image(p, d)
+            except OSError:
+                name = None
+            if name:
+                index.append({"file": name, "title": p.stem[:80], "author": "You", "license": "Your own image",
+                              "license_url": "", "page": page, "source": OWN_SRC})
+                have.add(page)
+                added += 1
+        write_json(d / "index.json", index)
+        if added:
+            log(f"Added {added} of your own image(s) to game {appid}")
+            self.screen_appid = 0
+            self.push("rows", self.rows())
+        return {"added": added, "skipped": len(paths) - added}
 
     def check_now(self, appid: Optional[int]) -> dict[str, Any]:
         self.engine.request_check(int(appid) if appid is not None else None)
