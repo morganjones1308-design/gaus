@@ -17,7 +17,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
   background: var(--paper); color: var(--ink);
   font: 400 14px/1.45 var(--font); -webkit-font-smoothing: antialiased;
@@ -64,8 +64,8 @@ button { font: inherit; color: inherit; }
 }
 
 /* ---------- toggle switch: a real checkbox underneath ---------- */
-.switch { display: inline-flex; align-items: center; gap: 12px; cursor: pointer; }
-.switch input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 12px; cursor: pointer; }
+.switch input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
 .switch .track {
   position: relative; flex: none; width: 48px; height: 28px; border-radius: 999px;
   background: var(--card); border: 2px solid var(--ink); transition: background-color .15s ease;

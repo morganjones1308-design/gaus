@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 

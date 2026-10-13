@@ -1,5 +1,5 @@
 /* main window layout */
-#app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; padding: 16px 22px 14px; gap: 12px; }
+#app { overflow: hidden; display: grid; grid-template-rows: auto auto 1fr; height: 100vh; padding: 16px 22px 14px; gap: 12px; }
 header.top { display: flex; align-items: center; gap: 18px; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { width: 46px; height: 46px; border-radius: 10px; box-shadow: 3px 3px 0 var(--ink); border: 2px solid var(--ink); }
