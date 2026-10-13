@@ -88,7 +88,7 @@ GENERIC_KEY = "_generic"
 # Where the app looks for new versions of itself: an https:// link to update.json.
 # Set it ONCE before building (so your gf's copy is pre-configured) or paste it into
 # Settings > "Update feed URL". Leave empty to disable self-update.
-DEFAULT_UPDATE_FEED = ""
+DEFAULT_UPDATE_FEED = "https://github.com/morganjones1308-design/gaus/releases/latest/download/update.json"
 UPDATE_CHECK_SECONDS = 4 * 3600
 
 CREATE_NO_WINDOW = 0x08000000
