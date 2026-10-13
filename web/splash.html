@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Gaus</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { display: grid; place-items: center; background: var(--paper); cursor: default; }
+  .card { width: 100%; height: 100%; display: grid; grid-template-rows: 1fr auto; padding: 22px 28px 18px; border: 3px solid var(--ink); }
+  .card img { width: 100%; align-self: center; display: block; animation: rise .5s ease-out both; }
+  .foot { display: grid; gap: 10px; justify-items: center; color: var(--muted); font-size: 12.5px; }
+  .foot .bar { width: 60%; height: 8px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+</style></head>
+<body>
+<div class="card">
+  <img src="/brand/logo.png" alt="Gaus">
+  <div class="foot"><div class="bar indeterminate" role="progressbar" aria-label="Starting"><i></i></div><span id="v">Starting<span class="dots"></span></span></div>
+</div>
+<script>
+  fetch("/ui/version.txt").then(r => r.text()).then(t => { document.getElementById("v").firstChild.textContent = "v" + t.trim() + "   ·   Starting"; }).catch(() => {});
+</script>
+</body></html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Gaus</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  :root { --night: #0c0b08; }
+  body { background: var(--night); color: var(--paper); cursor: none; }
+  .layer { position: fixed; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 1.2s ease; will-change: transform, opacity; }
+  .layer.on { opacity: 1; }
+  .layer.kb { animation: kb var(--dur, 9s) ease-out forwards; }
+  @keyframes kb { from { transform: scale(1) translate(0, 0); } to { transform: scale(var(--zoom, 1.12)) translate(var(--dx, 0), var(--dy, 0)); } }
+  .fallback { position: fixed; inset: 0; background: linear-gradient(135deg, #1d1b16, var(--night)); overflow: hidden; }
+  .fallback i { position: absolute; width: 60vw; height: 60vw; border-radius: 50%; background: radial-gradient(closest-side, rgba(246, 244, 240, .16), transparent); animation: drift 26s ease-in-out infinite alternate; }
+  .fallback i:nth-child(2) { background: radial-gradient(closest-side, rgba(138, 133, 122, .2), transparent); animation-duration: 33s; animation-delay: -9s; right: 0; bottom: 0; }
+  @keyframes drift { from { transform: translate(-10vw, -10vh); } to { transform: translate(25vw, 20vh); } }
+  .shade { position: fixed; inset: 0; background:
+    linear-gradient(to top, rgba(0, 0, 0, .92), rgba(0, 0, 0, .47) 45%, transparent 70%),
+    linear-gradient(to right, rgba(0, 0, 0, .59), transparent 60%),
+    linear-gradient(to bottom, rgba(0, 0, 0, .47), transparent 18%); }
+  .note { position: fixed; top: 4vh; right: 4.5vw; max-width: 62vw; text-align: right; font-size: max(11px, 1.8vh); color: rgba(255, 255, 255, .67); text-shadow: 0 2px 6px #000; }
+  .text { position: fixed; left: 4.5vw; right: 30vw; bottom: calc(1.2vh + 6vh); }
+  .label { font: 700 max(12px, 2.1vh)/1 var(--display); letter-spacing: .32em; text-transform: uppercase; display: flex; align-items: center; gap: 14px; margin-bottom: 1.2vh; text-shadow: 0 2px 8px #000; }
+  .label .pen { font-size: 2.6vh; }
+  .title { font: 900 max(28px, 8.5vh)/1 var(--display); text-transform: uppercase; letter-spacing: .01em; text-shadow: 0 4px 18px rgba(0, 0, 0, .8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail { margin-top: 1.4vh; font-size: max(12px, 2.6vh); color: rgba(255, 255, 255, .72); text-shadow: 0 2px 8px #000; font-variant-numeric: tabular-nums; min-height: 1.4em; }
+  .credit { position: fixed; right: 4.5vw; bottom: calc(6vh + 1vh); max-width: 50vw; text-align: right; font-size: max(10px, 1.55vh); color: rgba(255, 255, 255, .55); text-shadow: 0 2px 6px #000; }
+  .track { position: fixed; left: 0; right: 0; bottom: 0; height: max(5px, .8vh); background: rgba(255, 255, 255, .15); }
+  .track > i { display: block; height: 100%; width: var(--p, 0%); background: var(--paper); transition: width 1.4s ease; }
+  .track.indeterminate > i { width: 18%; animation: sweep 2.6s ease-in-out infinite; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(560%); } }
+  .hintkey { position: fixed; left: 4.5vw; top: 4vh; font-size: max(10px, 1.5vh); letter-spacing: .12em; text-transform: uppercase; color: rgba(255, 255, 255, .5); opacity: 0; animation: fade 6s ease .5s both; }
+  @keyframes fade { 0% { opacity: 0; } 15%, 70% { opacity: 1; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .layer.kb { animation: none; } }
+</style></head>
+<body>
+<div class="fallback" id="fallback" aria-hidden="true"><i></i><i></i></div>
+<div class="layer" id="A"></div><div class="layer" id="B"></div>
+<div class="shade"></div>
+<div class="hintkey">Click or press Esc to hide</div>
+<div class="note" id="note"></div>
+<div class="text" role="status" aria-live="polite">
+  <div class="label"><svg class="pen" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="20"/></svg><span id="label">UPDATING</span></div>
+  <div class="title" id="game"></div>
+  <div class="detail" id="detail"></div>
+</div>
+<div class="credit" id="credit"></div>
+<div class="track indeterminate" id="track" role="progressbar" aria-label="Update progress"><i></i></div>
+<script>
+  const api = (n, ...a) => window.pywebview.api[n](...a);
+  const $ = (id) => document.getElementById(id);
+  const Loading = (() => {
+    let slides = [], secs = 7, idx = 0, cur = 0, timer = null, sig = "";
+    const layers = [$("A"), $("B")];
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    function next() {
+      if (!slides.length) return;
+      const s = slides[idx++ % slides.length];
+      const img = new Image();
+      img.onload = () => {
+        const n = layers[1 - cur], o = layers[cur];
+        n.style.backgroundImage = `url("${s.url}")`;
+        n.style.setProperty("--dur", (secs + 3) + "s");
+        n.style.setProperty("--zoom", Math.random() < .5 ? rnd(1.08, 1.16) : rnd(1.0, 1.04));
+        n.style.setProperty("--dx", rnd(-2.5, 2.5) + "%"); n.style.setProperty("--dy", rnd(-2.5, 2.5) + "%");
+        n.classList.remove("kb"); void n.offsetWidth; n.classList.add("kb", "on");
+        o.classList.remove("on"); cur = 1 - cur;
+        $("credit").textContent = s.credit; $("fallback").style.display = "none";
+      };
+      img.onerror = () => {};
+      img.src = s.url;
+    }
+    function setSlides(list, seconds) {
+      const s2 = JSON.stringify(list) + seconds; if (s2 === sig) return; sig = s2;
+      slides = list; secs = Math.max(3, seconds || 7); idx = 0; clearInterval(timer);
+      layers.forEach((l) => l.classList.remove("on", "kb")); $("fallback").style.display = ""; $("credit").textContent = "";
+      if (slides.length) { next(); timer = setInterval(next, secs * 1000); }
+    }
+    function update(st) {
+      if (st.game != null) $("game").textContent = (st.game || "").toUpperCase();
+      if (st.label != null) $("label").textContent = st.label;
+      if (st.detail != null) $("detail").textContent = st.detail;
+      if (st.note != null) $("note").textContent = st.note;
+      if ("progress" in st) {
+        const t = $("track"), p = st.progress;
+        t.classList.toggle("indeterminate", p == null);
+        if (p != null) { t.firstElementChild.style.setProperty("--p", Math.max(0, Math.min(1, p)) * 100 + "%"); t.setAttribute("aria-valuenow", Math.round(p * 100)); }
+        else t.removeAttribute("aria-valuenow");
+      }
+    }
+    return { setSlides, update, init(d) { update(d.state); setSlides(d.slides, d.seconds); } };
+  })();
+  window.Loading = Loading;
+  const dismiss = () => api("loading_dismiss");
+  document.addEventListener("click", dismiss);
+  document.addEventListener("keydown", (e) => { if (["Escape", " ", "Enter"].includes(e.key)) dismiss(); });
+  async function init() { Loading.init(await api("loading_init")); }
+  if (window.pywebview && window.pywebview.api) init(); else window.addEventListener("pywebviewready", init);
+</script>
+</body></html>

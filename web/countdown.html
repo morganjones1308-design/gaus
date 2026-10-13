@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Gaus</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { display: grid; place-items: center; }
+  .card { width: 100%; height: 100%; padding: 22px 26px; display: grid; align-content: center; gap: 14px; border: 3px solid var(--ink); }
+  h1 { font-size: 24px; }
+  .big { font: 700 64px/1 var(--display); font-variant-numeric: tabular-nums; }
+  .big small { font-size: 18px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+  p { margin: 0; }
+  .bar > i { transition: width 1s linear; }
+</style></head>
+<body>
+<main class="card">
+  <h1>Game updates finished</h1>
+  <p id="body">The PC will shut down in</p>
+  <div class="big" role="timer" aria-live="off"><span id="n">–</span><small>seconds</small></div>
+  <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+  <p class="hint" id="sub">Move the mouse or press Cancel to keep the PC on.</p>
+  <button class="btn primary" id="cancel" type="button" autofocus>Cancel</button>
+</main>
+<script>
+  const api = (n, ...a) => window.pywebview.api[n](...a);
+  let total = 1;
+  window.Countdown = { tick(n) { document.getElementById("n").textContent = n; document.getElementById("bar").style.setProperty("--p", (100 * n / total) + "%"); document.getElementById("n").parentElement.setAttribute("aria-label", n + " seconds left"); } };
+  async function init() {
+    const d = await api("countdown_init");
+    total = Math.max(1, d.total);
+    document.getElementById("body").textContent = `The PC will ${d.verb} in`;
+    document.getElementById("sub").textContent = (d.names ? d.names + " is up to date. " : "") + "Move the mouse or press Cancel to keep the PC on.";
+    Countdown.tick(d.remaining);
+  }
+  document.getElementById("cancel").onclick = () => api("countdown_cancel");
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") api("countdown_cancel"); });
+  if (window.pywebview && window.pywebview.api) init(); else window.addEventListener("pywebviewready", init);
+</script>
+</body></html>

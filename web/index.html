@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gaus</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="main.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand">
+      <img src="/brand/icon.png" alt="" width="46" height="46">
+      <div><h1>Gaus</h1><p id="tagline">Gaming · Automated · Updating · Service</p></div>
+    </div>
+    <div class="who">
+      <span class="label" id="who-label">Account</span>
+      <div class="chips" id="accounts" role="radiogroup" aria-labelledby="who-label"></div>
+      <button class="btn sm" id="acc-new" type="button">+ New account</button>
+      <button class="btn sm ghost" id="acc-edit" type="button">Edit</button>
+      <button class="btn sm ghost danger" id="acc-del" type="button">Delete</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" role="status">
+    <p id="banner-text"></p>
+    <button class="btn sm primary" id="banner-btn" type="button">Install and restart</button>
+  </div>
+
+  <main>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-games" aria-selected="true" aria-controls="p-games" type="button">Games</button>
+      <button role="tab" id="tab-settings" aria-selected="false" aria-controls="p-settings" type="button">Settings</button>
+      <button role="tab" id="tab-log" aria-selected="false" aria-controls="p-log" type="button">Log</button>
+    </nav>
+
+    <section class="panel show" id="p-games" role="tabpanel" aria-labelledby="tab-games">
+      <div class="bar-row">
+        <span class="label" id="lc-label">Launcher</span>
+        <div class="chips" id="launchers" role="radiogroup" aria-labelledby="lc-label"></div>
+        <button class="btn sm" id="lc-add" type="button">+ Add launcher</button>
+        <button class="btn sm ghost" id="lc-edit" type="button">Launcher settings</button>
+        <button class="btn sm ghost danger" id="lc-del" type="button">Remove launcher</button>
+      </div>
+      <div class="bar-row">
+        <button class="btn primary" id="g-add" type="button">+ Add game</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button class="btn sm" id="g-edit" type="button">Schedule &amp; photos</button>
+        <button class="btn sm" id="g-check" type="button">Check now</button>
+        <button class="btn sm" id="g-preview" type="button">Preview slideshow</button>
+        <button class="btn sm" id="g-photos" type="button">Refresh photos</button>
+        <button class="btn sm ghost danger" id="g-del" type="button">Remove</button>
+      </div>
+      <div class="tablewrap" id="tablewrap">
+        <table aria-label="Games">
+          <thead><tr>
+            <th>Game</th><th>Launcher</th><th>Installed build</th><th>Latest build</th>
+            <th>Last patched (SAST)</th><th>Next window (SAST)</th><th>Photos</th><th>Status</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="empty" hidden></div>
+      </div>
+      <p class="hint" id="games-hint"></p>
+    </section>
+
+    <section class="panel" id="p-settings" role="tabpanel" aria-labelledby="tab-settings">
+      <div class="settings" id="settings"></div>
+    </section>
+
+    <section class="panel" id="p-log" role="tabpanel" aria-labelledby="tab-log">
+      <pre class="log" id="log" tabindex="0" aria-live="off"></pre>
+      <div><button class="btn sm" id="open-data" type="button">Open data folder</button></div>
+    </section>
+  </main>
+</div>
+
+<!-- account -->
+<dialog id="dlg-account" aria-labelledby="acc-title">
+  <form method="dialog" novalidate>
+    <div class="d-head"><h2 id="acc-title">Account</h2><p id="acc-sub">No password needed. An account only keeps people's launchers and games apart.</p></div>
+    <div class="d-body">
+      <div class="field"><label for="acc-name">Name</label><input class="input" id="acc-name" maxlength="40" autocomplete="off"><div class="errmsg" id="acc-err" role="alert"></div></div>
+      <label class="switch"><input type="checkbox" id="acc-enabled"><span class="track" aria-hidden="true"></span><span>Keep this account's games updated</span></label>
+      <p class="hint">If two accounts have the same game, it is only updated once.</p>
+    </div>
+    <div class="d-foot"><button class="btn ghost" value="cancel" type="button" data-close>Cancel</button><button class="btn primary" id="acc-ok" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- launcher -->
+<dialog id="dlg-launcher" aria-labelledby="lc-title">
+  <form method="dialog" novalidate>
+    <div class="d-head"><h2 id="lc-title">Add a launcher</h2></div>
+    <div class="d-body">
+      <div class="field"><label for="lc-type">Launcher</label><select class="input" id="lc-type"></select></div>
+      <div class="field"><label for="lc-name">Name shown in Gaus</label><input class="input" id="lc-name" autocomplete="off"></div>
+      <div class="field"><label for="lc-path" id="lc-path-label">Location</label>
+        <div class="row"><input class="input grow" id="lc-path" autocomplete="off" aria-describedby="lc-tip"><button class="btn" id="lc-browse" type="button">Browse</button></div></div>
+      <div class="field"><label for="lc-args">Extra start options</label><input class="input" id="lc-args" placeholder="optional, e.g. -silent" autocomplete="off"></div>
+      <label class="switch"><input type="checkbox" id="lc-enabled"><span class="track" aria-hidden="true"></span><span>Keep this launcher's games updated</span></label>
+      <p class="note" id="lc-tip"></p>
+    </div>
+    <div class="d-foot"><span class="errmsg" id="lc-err" role="alert"></span><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" id="lc-ok" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- add game -->
+<dialog id="dlg-addgame" aria-labelledby="ag-title">
+  <form method="dialog" novalidate>
+    <div class="d-head"><h2 id="ag-title">Add a game</h2></div>
+    <div class="d-body">
+      <div class="field"><label for="ag-launcher">Launcher</label><select class="input" id="ag-launcher"></select></div>
+      <p class="hint" id="ag-intro"></p>
+      <div class="field"><label for="ag-term">Game title</label>
+        <div class="row"><input class="input grow" id="ag-term" placeholder="e.g. Marvel Rivals" autocomplete="off"><button class="btn" id="ag-search" type="button">Search</button></div></div>
+      <div class="results" id="ag-results" role="listbox" aria-label="Results"></div>
+      <div class="errmsg" id="ag-err" role="alert"></div>
+    </div>
+    <div class="d-foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" id="ag-ok" type="submit">Add game</button></div>
+  </form>
+</dialog>
+
+<!-- schedule -->
+<dialog id="dlg-game" aria-labelledby="gm-title">
+  <form method="dialog" novalidate>
+    <div class="d-head"><h2 id="gm-title">Schedule</h2><p>All times are SAST (UTC+2).</p></div>
+    <div class="d-body">
+      <label class="switch"><input type="checkbox" id="gm-enabled"><span class="track" aria-hidden="true"></span><span>Keep this game updated automatically</span></label>
+      <div class="field"><label for="gm-weekly">Weekly patch windows, one per line</label><textarea class="input" id="gm-weekly" rows="3" placeholder="Thu 11:00"></textarea>
+        <span class="hint">For example <b>Thu 11:00</b> or <b>Daily 11:00</b></span></div>
+      <div class="field"><label for="gm-dates">One-off dates, one per line</label><textarea class="input" id="gm-dates" rows="3" placeholder="2026-11-13 11:00"></textarea>
+        <span class="hint">For big updates from the roadmap, like <b>2026-11-13 11:00</b></span></div>
+      <div class="field"><label for="gm-kw">Loading-screen photo searches, one per line</label><textarea class="input" id="gm-kw" rows="3"></textarea>
+        <span class="hint">Searched on Wikimedia Commons and Openverse. Add themes that fit the game.</span></div>
+      <p class="note">Gaus only opens the launcher while a window is open. For Steam it also needs a newer build to exist.</p>
+    </div>
+    <div class="d-foot"><span class="errmsg" id="gm-err" role="alert"></span><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" id="gm-ok" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- confirm / message -->
+<dialog id="dlg-ask" aria-labelledby="ask-title">
+  <form method="dialog">
+    <div class="d-head"><h2 id="ask-title">Gaus</h2></div>
+    <div class="d-body"><p id="ask-body" style="margin:0;white-space:pre-line"></p></div>
+    <div class="d-foot"><button class="btn ghost" id="ask-cancel" type="button">Cancel</button><button class="btn primary" id="ask-ok" type="submit">OK</button></div>
+  </form>
+</dialog>
+
+<!-- busy / install progress -->
+<dialog id="dlg-busy" aria-labelledby="busy-title">
+  <div class="d-head"><h2 id="busy-title">Working</h2></div>
+  <div class="d-body"><div class="progress-modal" role="status">
+    <svg class="pen" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="20"/></svg>
+    <p id="busy-text" style="margin:0">Please wait</p>
+    <div class="bar" id="busy-bar"><i></i></div>
+  </div></div>
+</dialog>
+
+<div id="toasts" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
