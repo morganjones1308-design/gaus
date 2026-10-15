@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.6"
+APP_VERSION = "1.7"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -662,7 +662,25 @@ def close_steam(steam: Path) -> None:
 
 
 def run_shutdown() -> None:
-    _run_hidden(["shutdown", "/s", "/t", "10", "/c", "Gaus: game updates finished"])
+    """Shut down for real. /f closes any program that would otherwise block the shutdown (a blocked shutdown
+    leaves the PC awake until Windows' idle timer puts it to sleep). If we are still running 2 minutes later,
+    Windows did not shut down, so try once more immediately."""
+    try:
+        r = _run_hidden(["shutdown", "/s", "/f", "/t", "10", "/c", "Gaus: game updates finished"])
+        log(f"shutdown command finished with code {r.returncode} {(r.stderr or r.stdout or '').strip()[:200]}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"shutdown command failed: {exc!r}")
+
+    def verify() -> None:
+        time.sleep(120)
+        log("Windows has not shut down 2 minutes after the command - trying again right now")
+        try:
+            r2 = _run_hidden(["shutdown", "/s", "/f", "/t", "0"])
+            log(f"second shutdown command finished with code {r2.returncode} {(r2.stderr or r2.stdout or '').strip()[:200]}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f"second shutdown command failed: {exc!r}")
+
+    threading.Thread(target=verify, daemon=True, name="shutdown-verify").start()
 
 
 # ---- sleep / wake
@@ -1769,6 +1787,7 @@ class Engine(threading.Thread):
         self.test_timer = WakeTimer("test")
         self._wake_target: Optional[float] = None
         self._awake_on = False
+        self._power_hold_until = 0.0     # keep the PC awake until a shutdown/hibernate has really happened
         self._last_tick = time.time()
         self._net_t = 0.0
         self._net_val = True
@@ -1881,7 +1900,8 @@ class Engine(threading.Thread):
 
     def _power(self, settings: dict[str, Any], games: list[dict[str, Any]], now: datetime) -> None:
         busy = (any(s.phase != "done" for s in self.sessions.values())
-                or self.shutdown is not None or bool(self.run_results))
+                or self.shutdown is not None or bool(self.run_results)
+                or time.time() < self._power_hold_until)
         upcoming: list[float] = []
         soon = False
         if settings["wake_from_sleep"] and not settings["paused"]:
@@ -2225,6 +2245,13 @@ class Engine(threading.Thread):
             log("Closing Steam first")
             close_steam(steam)
         log(f"The PC will {verb} now")
+        if action in ("shutdown", "hibernate"):
+            # Windows would otherwise put an idle PC to sleep the moment we stop holding it awake, before the
+            # shutdown has run (this is what happened on 15 Oct). Hold it awake for 5 minutes; if it works the
+            # PC is off long before that.
+            self._power_hold_until = time.time() + 300
+            set_keep_awake(True)
+            self._awake_on = True
         try:
             run_power_action(action)
         except (OSError, subprocess.SubprocessError) as exc:
