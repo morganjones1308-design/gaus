@@ -132,6 +132,13 @@
         <span class="hint">For example <b>Thu 11:00</b> or <b>Daily 11:00</b></span></div>
       <div class="field"><label for="gm-dates">One-off dates, one per line</label><textarea class="input" id="gm-dates" rows="3" placeholder="2026-11-13 11:00"></textarea>
         <span class="hint">For big updates from the roadmap, like <b>2026-11-13 11:00</b></span></div>
+      <div class="field" id="gm-wu-box">
+        <label class="switch"><input type="checkbox" id="gm-wu"><span class="track" aria-hidden="true"></span><span>After an update, start the game once so its shaders compile</span></label>
+        <span class="hint">Steam games, and only when the PC is going to power down. Gaus starts the game, waits until it has stopped working hard, then closes it.</span>
+        <div class="row wrap" id="gm-wu-opts">
+          <label for="gm-wu-quiet" class="hint">Finished when quiet for</label><input class="input" id="gm-wu-quiet" type="number" min="1" max="20" style="width:76px"><span class="hint">min</span>
+          <label for="gm-wu-max" class="hint">Never longer than</label><input class="input" id="gm-wu-max" type="number" min="10" max="180" style="width:84px"><span class="hint">min</span>
+        </div></div>
       <div class="field"><label for="gm-kw">Loading-screen photo searches, one per line</label><textarea class="input" id="gm-kw" rows="3"></textarea>
         <span class="hint">Used only when no official game art is found. Steam games use their official screenshots first.</span></div>
       <div class="field"><label for="gm-images">Your own images</label>

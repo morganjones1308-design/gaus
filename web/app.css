@@ -176,3 +176,5 @@ select.input {
   .pen circle { stroke-dasharray: 60, 150; }
   .bar.indeterminate > i { background: var(--ink); opacity: .45; }
 }
+
+[hidden] { display: none !important; }

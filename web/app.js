@@ -354,8 +354,12 @@ async function editGame() {
   const d = await api.game_detail(r.lid, r.appid); if (d.error) return toast(d.error, true);
   gmRow = r; $("#gm-title").textContent = `${d.name} – schedule and photos`;
   $("#gm-enabled").checked = d.enabled; $("#gm-weekly").value = d.weekly; $("#gm-dates").value = d.dates; $("#gm-kw").value = d.keywords;
+  $("#gm-wu").checked = !!d.warmup; $("#gm-wu-quiet").value = d.warmup_quiet; $("#gm-wu-max").value = d.warmup_max;
+  $("#gm-wu-box").hidden = !d.steam; syncWarmup();
   $("#gm-err").textContent = ""; gmDlg.showModal(); $("#gm-weekly").focus();
 }
+function syncWarmup() { const on = $("#gm-wu").checked; $("#gm-wu-quiet").disabled = !on; $("#gm-wu-max").disabled = !on; $("#gm-wu-opts").style.opacity = on ? "1" : ".5"; }
+$("#gm-wu").addEventListener("change", syncWarmup);
 $("#g-edit").onclick = editGame;
 $("#gm-images").onclick = (e) => busy(e.currentTarget, async () => {
   const r = await api.add_images(gmRow.lid, gmRow.appid);
@@ -364,7 +368,8 @@ $("#gm-images").onclick = (e) => busy(e.currentTarget, async () => {
 $("#dlg-game form").addEventListener("submit", async (e) => {
   e.preventDefault();
   await busy($("#gm-ok"), async () => {
-    const res = await api.save_game(gmRow.lid, gmRow.appid, $("#gm-enabled").checked, $("#gm-weekly").value, $("#gm-dates").value, $("#gm-kw").value);
+    const res = await api.save_game(gmRow.lid, gmRow.appid, $("#gm-enabled").checked, $("#gm-weekly").value, $("#gm-dates").value, $("#gm-kw").value,
+      $("#gm-wu").checked, parseInt($("#gm-wu-max").value, 10) || 45, parseInt($("#gm-wu-quiet").value, 10) || 3);
     if (res && res.error) { $("#gm-err").textContent = res.error; return; }
     if (apply(res)) { gmDlg.close(); toast("Schedule saved"); }
   });

@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.7"
+APP_VERSION = "1.8"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -393,7 +393,10 @@ def normalize_game(g: Any) -> Optional[dict[str, Any]]:
     name = str(g.get("name") or f"App {appid}").strip()
     return {"appid": appid, "name": name, "enabled": bool(g.get("enabled", True)),
             "weekly": weekly, "dates": sorted(set(dates)),
-            "photo_keywords": keywords or [name]}
+            "photo_keywords": keywords or [name],
+            "shader_warmup": bool(g.get("shader_warmup", False)),
+            "warmup_max_minutes": max(10, min(180, to_int(g.get("warmup_max_minutes"), 45))),
+            "warmup_quiet_minutes": max(1, min(20, to_int(g.get("warmup_quiet_minutes"), 3)))}
 
 
 def new_id() -> str:
@@ -580,7 +583,7 @@ def read_manifest(appid: int, steam: Optional[Path]) -> Optional[dict[str, Any]]
             if not isinstance(state, dict):
                 continue
             return {
-                "path": f, "name": vget(state, "name", ""),
+                "path": f, "name": vget(state, "name", ""), "installdir": str(vget(state, "installdir", "") or ""),
                 "state": to_int(vget(state, "StateFlags")),
                 "buildid": to_int(vget(state, "buildid")),
                 "target": to_int(vget(state, "TargetBuildID")),
@@ -642,6 +645,30 @@ def running_app_id() -> int:
             return int(winreg.QueryValueEx(k, "RunningAppID")[0])
     except (OSError, ValueError):
         return 0
+
+
+def game_processes(installdir: str, steam: Optional[Path]) -> list[Any]:
+    """Running processes whose program file lives inside this Steam game's install folder."""
+    if not installdir or steam is None or psutil is None:
+        return []
+    roots = [str(d / "common" / installdir).lower().rstrip("\\/") + os.sep for d in library_dirs(steam)]
+    out: list[Any] = []
+    try:
+        for p in psutil.process_iter(["pid", "exe"]):
+            try:
+                exe = str(p.info.get("exe") or "").lower()
+            except Exception:
+                continue
+            if exe and any(exe.startswith(r) for r in roots):
+                out.append(p)
+    except Exception:
+        return out
+    return out
+
+
+def start_steam_game(steam: Path, appid: int) -> None:
+    flags = (DETACHED_PROCESS | 0x00000200) if IS_WINDOWS else 0
+    subprocess.Popen([str(steam / "steam.exe"), f"steam://rungameid/{appid}"], creationflags=flags, close_fds=True)
 
 
 def launch_steam(steam: Path) -> None:
@@ -1723,6 +1750,13 @@ class Config:
 
 
 # --------------------------------------------------------------------------- engine
+def _alive(p: Any) -> bool:
+    try:
+        return bool(p.is_running()) and p.status() != "zombie"
+    except Exception:
+        return False
+
+
 class Session:
     def __init__(self, game: dict[str, Any], key: str, manual: bool,
                  window_end: Optional[datetime]) -> None:
@@ -1788,6 +1822,8 @@ class Engine(threading.Thread):
         self._wake_target: Optional[float] = None
         self._awake_on = False
         self._power_hold_until = 0.0     # keep the PC awake until a shutdown/hibernate has really happened
+        self.warmup_queue: list[tuple[int, str]] = []    # games to run once after their update (shader compiling)
+        self.warmup: Optional[dict[str, Any]] = None
         self._last_tick = time.time()
         self._net_t = 0.0
         self._net_val = True
@@ -1961,6 +1997,10 @@ class Engine(threading.Thread):
             except OSError:
                 pass
         self.run_results.append((s.name, result, s.manual))
+        if (result == "updated" and not s.manual and s.game.get("shader_warmup") and s.lc.precise
+                and self.cfg.settings.get("shutdown_enabled") and all(a != s.appid for a, _n in self.warmup_queue)):
+            self.warmup_queue.append((s.appid, s.name))
+            log(f"{s.name}: will be started once so its shaders compile before the PC powers down")
         if result == "updated":
             emit("notify", "Update finished", f"{s.name} is up to date.")
         elif result == "failed":
@@ -2185,6 +2225,8 @@ class Engine(threading.Thread):
                 log("New update activity - shutdown postponed")
                 self.shutdown = None
             return
+        if self._run_warmup(settings, steam):
+            return
         if self.shutdown is None:
             if not self.run_results:
                 return
@@ -2231,6 +2273,110 @@ class Engine(threading.Thread):
                 log("Shutdown cancelled")
                 self.shutdown = None
                 self.run_results = []
+
+    WARMUP_CPU_BUSY = 15.0        # % of the whole CPU: above this the game is still working (compiling shaders)
+
+    def _end_warmup(self, why: str) -> None:
+        w = self.warmup
+        self.warmup = None
+        if w is None:
+            return
+        log(f"{w['name']}: shader warm-up finished - {why}")
+        procs = [p for p in w.get("procs", {}).values()]
+        try:
+            procs += [p for p in game_processes(w["installdir"], w["steam"]) if p.pid not in {q.pid for q in procs}]
+        except Exception:
+            pass
+        for p in procs:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        deadline = time.time() + 15
+        while time.time() < deadline and any(_alive(p) for p in procs):
+            time.sleep(0.5)
+        for p in procs:
+            if _alive(p):
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+    def _run_warmup(self, settings: dict[str, Any], steam: Optional[Path]) -> bool:
+        """After an update, start the game once so it compiles its shaders, then close it. Returns True while
+        this is going on (the shutdown flow must wait). Never runs forever: every step has a time limit."""
+        t = time.time()
+        w = self.warmup
+        if w is None:
+            if not self.warmup_queue:
+                return False
+            appid, name = self.warmup_queue.pop(0)
+            g = self.cfg.get_game(appid)
+            m = read_manifest(appid, steam) if steam is not None else None
+            if g is None or steam is None or m is None or not m.get("installdir") or psutil is None:
+                log(f"{name}: shader warm-up skipped (game folder or the psutil package not available)")
+                return bool(self.warmup_queue)
+            self.warmup = w = {"appid": appid, "name": name, "steam": steam, "installdir": m["installdir"],
+                               "max_s": int(g.get("warmup_max_minutes", 45)) * 60,
+                               "quiet_s": int(g.get("warmup_quiet_minutes", 3)) * 60,
+                               "since": t, "launched": 0.0, "game_seen": 0.0, "saw_busy": False,
+                               "quiet_since": 0.0, "procs": {}, "cpu": 0.0, "last_log": 0.0}
+            log(f"{name}: shader warm-up - waiting for the PC to be idle, then starting the game")
+        # wait until nobody is using the PC, so the game does not appear in front of someone
+        if not w["launched"]:
+            idle_ok = user_idle_seconds() >= int(settings["shutdown_idle_minutes"]) * 60
+            if idle_ok and running_app_id() == 0:
+                w["launched"] = t
+                try:
+                    start_steam_game(w["steam"], w["appid"])
+                    log(f"{w['name']}: started through Steam")
+                except OSError as exc:
+                    self._end_warmup(f"the game could not be started ({exc})")
+                    return True
+            elif t - w["since"] > int(settings["shutdown_wait_minutes"]) * 60:
+                self._end_warmup("the PC stayed in use, so the game was not started")
+            return True
+        procs = game_processes(w["installdir"], w["steam"])
+        if not procs:
+            if w["game_seen"]:
+                self._end_warmup("the game closed by itself")
+            elif t - w["launched"] > 240:
+                self._end_warmup("the game did not start within 4 minutes (its launcher may be waiting for a click)")
+            return True
+        if not w["game_seen"]:
+            w["game_seen"] = t
+            log(f"{w['name']}: the game is running - waiting for it to finish compiling shaders")
+        total = 0.0
+        for p in procs:
+            if p.pid not in w["procs"]:
+                w["procs"][p.pid] = p
+                try:
+                    p.cpu_percent(None)          # first reading only starts the measurement
+                except Exception:
+                    pass
+                continue
+            try:
+                total += p.cpu_percent(None)
+            except Exception:
+                continue
+        cpus = max(1, (psutil.cpu_count() or 1))     # type: ignore[union-attr]
+        w["cpu"] = total / cpus
+        if w["cpu"] >= self.WARMUP_CPU_BUSY:
+            w["saw_busy"] = True
+            w["quiet_since"] = 0.0
+        elif not w["quiet_since"]:
+            w["quiet_since"] = t
+        quiet_for = t - w["quiet_since"] if w["quiet_since"] else 0.0
+        ran = t - w["game_seen"]
+        if t - w["last_log"] > 120:
+            w["last_log"] = t
+            log(f"{w['name']}: shader warm-up {ran / 60:.0f} min, game CPU {w['cpu']:.0f}%"
+                + (f", quiet for {quiet_for / 60:.1f} min" if quiet_for else ""))
+        if quiet_for >= w["quiet_s"] and (w["saw_busy"] or ran >= 300):
+            self._end_warmup("the game has been quiet, so the shaders are done")
+        elif t - w["launched"] >= w["max_s"]:
+            self._end_warmup("the time limit was reached")
+        return True
 
     def _do_shutdown(self, settings: dict[str, Any], steam: Optional[Path]) -> None:
         action = str(settings["after_action"])
@@ -2295,7 +2441,18 @@ class Engine(threading.Thread):
 
         active = [s for s in self.sessions.values() if s.phase != "done"]
         note = power_note(settings)
-        if active:
+        wu = self.warmup
+        if not active and wu is not None:
+            if not wu["launched"]:
+                detail = "Waiting for the PC to be idle..."
+            elif not wu["game_seen"]:
+                detail = "Starting the game..."
+            else:
+                detail = (f"{(time.time() - wu['game_seen']) / 60:.0f} min  \u00b7  game CPU {wu['cpu']:.0f}%"
+                          f"  \u00b7  up to {wu['max_s'] // 60} min")
+            emit("progress", {"state": "active", "appid": wu["appid"], "game": wu["name"], "phase": "warmup",
+                              "launcher": "Steam", "progress": None, "detail": detail, "note": note, "count": 1})
+        elif active:
             s = next((x for x in active if x.phase == "downloading"), active[0])
             if s.phase == "launching":
                 detail, prog = f"Starting {s.lc.name}...", None
@@ -2568,8 +2725,10 @@ class Api:
         return self._ctl.game_detail(lid, int(appid))
 
     @_api
-    def save_game(self, lid: str, appid: int, enabled: bool, weekly: str, dates: str, keywords: str) -> dict[str, Any]:
-        return self._ctl.save_game(lid, int(appid), enabled, weekly, dates, keywords)
+    def save_game(self, lid: str, appid: int, enabled: bool, weekly: str, dates: str, keywords: str,
+                  warmup: bool = False, warmup_max: int = 45, warmup_quiet: int = 3) -> dict[str, Any]:
+        return self._ctl.save_game(lid, int(appid), enabled, weekly, dates, keywords, bool(warmup),
+                                   to_int(warmup_max, 45), to_int(warmup_quiet, 3))
 
     @_api
     def remove_game(self, lid: str, appid: int) -> dict[str, Any]:
@@ -3097,9 +3256,12 @@ class Controller:
         if g is None:
             return {"error": "That game no longer exists."}
         return {"name": g["name"], "enabled": bool(g["enabled"]), "weekly": format_weekly_text(g["weekly"]),
-                "dates": "\n".join(g["dates"]), "keywords": "\n".join(g["photo_keywords"])}
+                "dates": "\n".join(g["dates"]), "keywords": "\n".join(g["photo_keywords"]),
+                "warmup": bool(g.get("shader_warmup")), "warmup_max": int(g.get("warmup_max_minutes", 45)),
+                "warmup_quiet": int(g.get("warmup_quiet_minutes", 3)), "steam": bool((self._lookup(lid)[1] or {}).get("type") == "steam")}
 
-    def save_game(self, lid: str, appid: int, enabled: bool, weekly: str, dates: str, keywords: str) -> dict[str, Any]:
+    def save_game(self, lid: str, appid: int, enabled: bool, weekly: str, dates: str, keywords: str,
+                  warmup: bool = False, warmup_max: int = 45, warmup_quiet: int = 3) -> dict[str, Any]:
         acc, g = self._find_game(lid, appid)
         if acc is None or g is None:
             return {"error": "That game no longer exists."}
@@ -3111,7 +3273,9 @@ class Controller:
         kws = [k.strip() for k in keywords.splitlines() if k.strip()]
         changed = kws != g["photo_keywords"]
         g = copy.deepcopy(g)
-        g.update({"enabled": bool(enabled), "weekly": wk, "dates": dt, "photo_keywords": kws or [g["name"]]})
+        g.update({"enabled": bool(enabled), "weekly": wk, "dates": dt, "photo_keywords": kws or [g["name"]],
+                  "shader_warmup": bool(warmup), "warmup_max_minutes": max(10, min(180, warmup_max)),
+                  "warmup_quiet_minutes": max(1, min(20, warmup_quiet))})
         self.cfg.update_game(acc["id"], lid, g)
         log(f"Saved schedule for {g['name']}")
         if changed:
@@ -3383,10 +3547,11 @@ class Controller:
         if self.preview_active:
             return
         state = p.get("state")
-        if state == "active" and p.get("phase") in ("launching", "downloading"):
+        if state == "active" and p.get("phase") in ("launching", "downloading", "warmup"):
             self._stop_hide()
             self._prepare_screen(p["appid"], p["game"])
-            label = f"STARTING {str(p.get('launcher') or 'LAUNCHER').upper()}" if p["phase"] == "launching" else "UPDATING"
+            label = (f"STARTING {str(p.get('launcher') or 'LAUNCHER').upper()}" if p["phase"] == "launching"
+                     else "COMPILING SHADERS" if p["phase"] == "warmup" else "UPDATING")
             self.screen.set_state({"label": label, "detail": p["detail"], "progress": p["progress"], "note": p.get("note", "")})
             if not self.run_dismissed:
                 self._present()
