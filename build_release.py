@@ -51,6 +51,26 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
+def sign_ephemeral(exe: Path) -> None:
+    """Signs with a throwaway self-signed certificate; its private key is deleted straight after and the
+    timestamp keeps the signature valid. This proves the file was not altered, not who made it, so Windows
+    still reports an unknown publisher."""
+    script = (
+        "$ErrorActionPreference='Stop';"
+        "$c=New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Gaus' -CertStoreLocation Cert:\\CurrentUser\\My "
+        "-KeyExportPolicy NonExportable -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(1);"
+        "try{[void](Set-AuthenticodeSignature -LiteralPath $env:GAUS_EXE -Certificate $c -HashAlgorithm SHA256 "
+        "-TimestampServer 'http://timestamp.digicert.com');"
+        "$s=Get-AuthenticodeSignature -LiteralPath $env:GAUS_EXE;"
+        "if(-not $s.SignerCertificate -or -not $s.TimeStamperCertificate){throw 'The signature or timestamp is missing'}}"
+        "finally{Remove-Item -LiteralPath \"Cert:\\CurrentUser\\My\\$($c.Thumbprint)\" -DeleteKey;"
+        "Remove-Item -LiteralPath \"Cert:\\CurrentUser\\CA\\$($c.Thumbprint)\" -ErrorAction SilentlyContinue}"
+    )
+    env = {**os.environ, "GAUS_EXE": str(exe)}
+    if subprocess.call(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env) != 0:
+        sys.exit("Signing failed - see the messages above.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build the .exe and update.json")
     ap.add_argument("--repo", help="GitHub repo as OWNER/NAME (used to build the download links)")
@@ -99,6 +119,7 @@ def main() -> None:
     exe = dist / f"{EXE_NAME}.exe"
     if not exe.exists():
         sys.exit(f"Expected {exe} but it was not created.")
+    sign_ephemeral(exe)
 
     base = args.base_url.rstrip("/") if args.base_url else \
         f"https://github.com/{args.repo}/releases/download/v{version}"

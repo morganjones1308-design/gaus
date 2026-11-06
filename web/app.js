@@ -193,11 +193,12 @@ function renderLive(items) {
       c = el("article", { class: "live-card", "data-appid": i.appid },
         el("div", { class: "live-head" }, el("span", { class: "live-tag" }, "LIVE"), el("h3", {}, i.name), el("span", { class: "live-status" }),
           el("button", { class: "btn sm ghost", type: "button", onclick: () => setTracking(i.appid, i.name, false) }, "Stop tracking")),
-        el("div", { class: "bar" }, el("i")), el("p", { class: "live-detail" }));
+        el("div", { class: "bar" }, el("i")), el("p", { class: "live-detail" }), el("p", { class: "live-note" }));
       box.append(c);
     }
     $(".live-status", c).textContent = i.status;
     $(".live-detail", c).textContent = i.detail || "Waiting for Steam…";
+    $(".live-note", c).textContent = i.note;
     $("button", c).hidden = !i.tracked;
     const bar = $(".bar", c); bar.classList.toggle("indeterminate", i.progress == null);
     bar.firstElementChild.style.setProperty("--p", ((i.progress || 0) * 100).toFixed(1) + "%");
@@ -437,7 +438,7 @@ $$("nav.tabs button").forEach((b, i, all) => {
 const AFTER_NOTES = { sleep: "The PC sleeps, and Gaus can wake it again for the next window.", hibernate: "The PC hibernates, and Gaus can wake it again for the next window.", shutdown: "The PC shuts down. A shut-down PC can NOT wake itself, so switch it on yourself before the next window." };
 const SCHEMA = [
   { group: "Finding updates", items: [
-    { key: "auto_track", type: "toggle", title: "Track Steam downloads I start myself", desc: "Shows live progress for your games here. Tracking never opens Steam or powers the PC down, but it keeps the PC awake until the download ends." },
+    { key: "auto_track", type: "toggle", title: "Track Steam downloads I start myself", desc: "Shows live progress for your games here. Tracking never opens Steam, and it keeps the PC awake until the download ends." },
     { key: "remote_check", type: "toggle", title: "Steam: check the latest build first", desc: "Asks api.steamcmd.net before opening Steam, so Steam is only opened when there is something to get." },
     { key: "remote_poll_seconds", type: "number", title: "Re-check every", min: 60, max: 3600, step: 30, unit: "sec" },
     { key: "start_early_minutes", type: "number", title: "Start watching before the window", min: 0, max: 60, unit: "min" },
@@ -446,6 +447,7 @@ const SCHEMA = [
     { key: "generic_quiet_minutes", type: "number", title: "Other launchers: finished after this many quiet minutes", desc: "Gaus cannot ask them for a build number, so it watches their disk activity instead.", min: 1, max: 60, unit: "min" } ] },
   { group: "When updates are done", items: [
     { key: "shutdown_enabled", type: "toggle", title: "Power the PC down when updates have finished" },
+    { key: "shutdown_after_manual", type: "toggle", title: "Also after downloads I start myself", desc: "Includes Track and Check now. Off means only scheduled updates power the PC down. Open programs are closed, so save your work." },
     { key: "after_action", type: "radio", title: "…by doing this", options: [["Sleep", "sleep"], ["Hibernate", "hibernate"], ["Shut down", "shutdown"]], note: true },
     { key: "shutdown_idle_minutes", type: "number", title: "…only if nobody used the PC for", min: 1, max: 120, unit: "min" },
     { key: "shutdown_wait_minutes", type: "number", title: "…stop waiting for that after", min: 5, max: 480, step: 5, unit: "min" },

@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.9"
+APP_VERSION = "1.10"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -128,6 +128,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "stall_minutes": 20,
     "max_download_hours": 8,
     "shutdown_enabled": True,
+    "shutdown_after_manual": False,    # also power down after downloads the user started themselves
     "shutdown_idle_minutes": 10,
     "shutdown_wait_minutes": 30,
     "countdown_seconds": 120,
@@ -2333,12 +2334,12 @@ class Engine(threading.Thread):
             updated = any(r == "updated" for _n, r, _m in results)
             failed = any(r == "failed" for _n, r, _m in results)
             manual = any(m for _n, _r, m in results)
-            if updated and not failed and not manual and settings["shutdown_enabled"]:
+            if updated and not failed and settings["shutdown_enabled"] and (not manual or settings["shutdown_after_manual"]):
                 self.shutdown = {"phase": "waiting", "since": time.time()}
                 log("All updates finished - waiting for the PC to be idle before powering down")
             else:
                 if updated and manual:
-                    log("Manual check - the PC will not be shut down automatically")
+                    log("Started by hand - the PC stays on (Settings > When updates are done can change this)")
                 elif updated and failed:
                     log("An update failed - leaving the PC on")
                 self.run_results = []
@@ -2347,7 +2348,8 @@ class Engine(threading.Thread):
         now = time.time()
         if sd["phase"] == "waiting":
             idle_ok = user_idle_seconds() >= int(settings["shutdown_idle_minutes"]) * 60
-            if idle_ok and running_app_id() == 0:
+            still_downloading = self._steam_up() and any(a["active"] for a in self.live.values())
+            if idle_ok and running_app_id() == 0 and not still_downloading:
                 sd["phase"], sd["since"] = "countdown", now
                 self.countdown_answer = None
                 names = ", ".join(sorted({n for n, r, _m in self.run_results if r == "updated"}))
@@ -2539,7 +2541,7 @@ class Engine(threading.Thread):
         emit("status", rows)
 
         active = [s for s in self.sessions.values() if s.phase != "done"]
-        emit("live", [self._live_item(s, rows) for s in active])
+        emit("live", [self._live_item(s, rows, settings) for s in active])
         note = power_note(settings)
         wu = self.warmup
         if not active and wu is not None:
@@ -2584,7 +2586,7 @@ class Engine(threading.Thread):
         else:
             emit("progress", {"state": "idle"})
 
-    def _live_item(self, s: Session, rows: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    def _live_item(self, s: Session, rows: dict[int, dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
         """One card in the main window's live panel."""
         known = s.saw_activity and s.bytes_total > 0
         parts = [f"{fmt_bytes(s.bytes_done)} of {fmt_bytes(s.bytes_total)}"] if known else []
@@ -2594,7 +2596,8 @@ class Engine(threading.Thread):
                 mins = max(1, int((s.bytes_total - s.bytes_done) / s.speed / 60))
                 parts.append(f"about {mins // 60} h {mins % 60} min left" if mins >= 60 else f"about {mins} min left")
         return {"appid": s.appid, "name": s.name, "tracked": s.tracked, "progress": s.progress if known else None,
-                "status": rows.get(s.appid, {}).get("status", ""), "detail": "  ·  ".join(parts)}
+                "status": rows.get(s.appid, {}).get("status", ""), "detail": "  ·  ".join(parts),
+                "note": power_note(settings) if not s.manual or settings["shutdown_after_manual"] else ""}
 
 
 # --------------------------------------------------------------------------- web UI plumbing
