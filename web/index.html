@@ -9,72 +9,147 @@
 </head>
 <body>
 <div id="app">
-  <header class="top">
-    <div class="brand">
-      <img src="/brand/icon.png" alt="" width="46" height="46">
-      <div><h1>Gaus</h1><p id="tagline">Gaming · Automated · Updating · Service</p></div>
-    </div>
-    <div class="who">
-      <span class="label" id="who-label">Account</span>
-      <div class="chips" id="accounts" role="radiogroup" aria-labelledby="who-label"></div>
-      <button class="btn sm" id="acc-new" type="button">+ New account</button>
-      <button class="btn sm ghost" id="acc-edit" type="button">Edit</button>
-      <button class="btn sm ghost danger" id="acc-del" type="button">Delete</button>
-    </div>
-  </header>
-
-  <div class="banner" id="banner" role="status">
-    <p id="banner-text"></p>
-    <button class="btn sm primary" id="banner-btn" type="button">Install and restart</button>
-  </div>
-
-  <main>
-    <nav class="tabs" role="tablist" aria-label="Sections">
-      <button role="tab" id="tab-games" aria-selected="true" aria-controls="p-games" type="button">Games</button>
+  <aside class="side">
+    <div class="brand"><img src="/brand/icon.png" alt="" width="34" height="34"><span>GAUS</span></div>
+    <nav class="tabs" role="tablist" aria-label="Sections" aria-orientation="vertical">
+      <button role="tab" id="tab-games" aria-selected="true" aria-controls="p-games" type="button">Library</button>
+      <button role="tab" id="tab-downloads" aria-selected="false" aria-controls="p-downloads" type="button">Downloads<span class="count" id="dl-count" hidden></span></button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="p-settings" type="button">Settings</button>
       <button role="tab" id="tab-log" aria-selected="false" aria-controls="p-log" type="button">Log</button>
+      <button role="tab" id="tab-guide" aria-selected="false" aria-controls="p-guide" type="button">Guide</button>
+      <button role="tab" id="tab-stats" aria-selected="false" aria-controls="p-stats" type="button">Stats for nerds</button>
     </nav>
+    <div class="side-foot">
+      <label for="account">Account</label>
+      <select class="input" id="account"></select>
+      <small id="version"></small>
+    </div>
+  </aside>
 
-    <section class="panel show" id="p-games" role="tabpanel" aria-labelledby="tab-games">
-      <div class="live" id="live" aria-label="Live downloads" hidden></div>
-      <div class="bar-row">
-        <span class="label" id="lc-label">Launcher</span>
-        <div class="chips" id="launchers" role="radiogroup" aria-labelledby="lc-label"></div>
-        <button class="btn sm" id="lc-add" type="button">+ Add launcher</button>
-        <button class="btn sm ghost" id="lc-edit" type="button">Launcher settings</button>
-        <button class="btn sm ghost danger" id="lc-del" type="button">Remove launcher</button>
-      </div>
-      <div class="bar-row">
-        <button class="btn primary" id="g-add" type="button">+ Add game</button>
-        <span class="sep" aria-hidden="true"></span>
-        <button class="btn sm cobalt" id="g-track" type="button">Track download</button>
-        <button class="btn sm" id="g-check" type="button">Check now</button>
-        <button class="btn sm" id="g-edit" type="button">Schedule &amp; photos</button>
-        <button class="btn sm ghost" id="g-preview" type="button">Preview slideshow</button>
-        <button class="btn sm ghost" id="g-photos" type="button">Refresh photos</button>
-        <button class="btn sm ghost danger" id="g-del" type="button">Remove</button>
-      </div>
-      <div class="tablewrap" id="tablewrap">
-        <table aria-label="Games">
-          <thead><tr>
-            <th>Game</th><th>Build</th><th>Last patched</th><th>Next window</th><th>Status</th>
-          </tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
-        <div class="empty" id="empty" hidden></div>
-      </div>
-      <p class="hint" id="games-hint"></p>
-    </section>
+  <div class="page">
+    <div class="banner" id="banner" role="status">
+      <p id="banner-text"></p>
+      <button class="btn sm primary" id="banner-btn" type="button">Install and restart</button>
+    </div>
 
-    <section class="panel" id="p-settings" role="tabpanel" aria-labelledby="tab-settings">
-      <div class="settings" id="settings"></div>
-    </section>
+    <main>
+      <section class="panel show" id="p-games" role="tabpanel" aria-labelledby="tab-games">
+        <div class="library">
+          <div class="lib-list">
+            <div class="lib-top">
+              <input class="input" id="g-search" type="search" placeholder="Search your games" aria-label="Search your games" autocomplete="off">
+              <select class="input" id="lc-filter" aria-label="Show games from"></select>
+            </div>
+            <ul id="rows" aria-label="Games"></ul>
+            <div class="lib-foot">
+              <button class="btn sm primary" id="g-add" type="button">Add a game</button>
+              <button class="btn sm ghost" id="g-check-all" type="button">Check all for updates</button>
+            </div>
+          </div>
+          <div class="detail" id="detail">
+            <div class="empty" id="empty" hidden></div>
+            <div id="game-page" hidden>
+              <div class="hero" id="hero"><h2 id="gp-name"></h2></div>
+              <div class="actions">
+                <button class="btn primary" id="g-check" type="button">Check for update</button>
+                <button class="btn" id="g-track" type="button">Track download</button>
+                <button class="btn" id="g-saver" type="button" hidden>Screen saver</button>
+                <button class="btn" id="g-edit" type="button">Schedule</button>
+                <details class="more" id="g-more">
+                  <summary class="btn ghost">More</summary>
+                  <div class="menu">
+                    <button id="g-preview" type="button">Preview slideshow</button>
+                    <button id="g-photos" type="button">Get new photos</button>
+                    <button class="danger" id="g-del" type="button">Remove from Gaus</button>
+                  </div>
+                </details>
+              </div>
+              <div class="dl-now" id="gp-live" hidden>
+                <div class="bar"><i></i></div>
+                <p id="gp-live-text"></p>
+              </div>
+              <dl class="facts">
+                <div><dt>Status</dt><dd id="gp-status"></dd></div>
+                <div><dt>Next update window</dt><dd id="gp-next"></dd></div>
+                <div><dt>Last patched</dt><dd id="gp-patched"></dd></div>
+                <div><dt>Installed build</dt><dd id="gp-build"></dd></div>
+                <div><dt>Launcher</dt><dd id="gp-launcher"></dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </section>
 
-    <section class="panel" id="p-log" role="tabpanel" aria-labelledby="tab-log">
-      <pre class="log" id="log" tabindex="0" aria-live="off"></pre>
-      <div><button class="btn sm" id="open-data" type="button">Open data folder</button></div>
-    </section>
-  </main>
+      <section class="panel" id="p-downloads" role="tabpanel" aria-labelledby="tab-downloads">
+        <div class="page-head"><h2>Downloads</h2><p id="dl-sub"></p></div>
+        <div class="downloads" id="live"></div>
+      </section>
+
+      <section class="panel" id="p-settings" role="tabpanel" aria-labelledby="tab-settings">
+        <div class="page-head"><h2>Settings</h2></div>
+        <div class="settings" id="settings"></div>
+      </section>
+
+      <section class="panel" id="p-log" role="tabpanel" aria-labelledby="tab-log">
+        <div class="page-head"><h2>Log</h2></div>
+        <pre class="log" id="log" tabindex="0" aria-live="off"></pre>
+        <div class="log-foot"><button class="btn sm" id="open-data" type="button">Open data folder</button></div>
+      </section>
+
+      <section class="panel" id="p-stats" role="tabpanel" aria-labelledby="tab-stats">
+        <div class="page-head"><h2>Stats for nerds</h2><p>What Gaus is using on this PC right now, measured every 2 seconds.</p></div>
+        <div class="stats">
+          <div class="big-stats">
+            <div><span>RAM, this window included</span><b id="st-ram">–</b><small id="st-ram-sub"></small></div>
+            <div><span>CPU, share of the whole PC</span><b id="st-cpu">–</b><small id="st-cpu-sub"></small></div>
+            <div><span>Last measured in the tray</span><b id="st-tray">–</b><small id="st-tray-sub"></small></div>
+          </div>
+          <table>
+            <thead><tr><th>Process</th><th>PID</th><th class="num">RAM (MB)</th><th class="num">Committed (MB)</th><th class="num">CPU</th><th class="num">Threads</th></tr></thead>
+            <tbody id="st-rows"></tbody>
+          </table>
+          <p class="hint" id="st-engine"></p>
+          <p class="hint"><b>How to read this.</b> RAM is memory held only by Gaus (private working set); memory shared with other programs isn't counted. Committed is what Windows has promised Gaus, including anything moved out of RAM. CPU 100% means every core on your PC is flat out. Most of the usage while you read this is the window itself. When you close it to the tray, Gaus unloads the page and the first two figures drop. The built-in Edge browser can't be fully shut down while Gaus runs, so some of it always remains, and that's included in these numbers.</p>
+        </div>
+      </section>
+
+      <section class="panel" id="p-guide" role="tabpanel" aria-labelledby="tab-guide">
+        <div class="page-head guide-head">
+          <div><h2>Guide</h2><p>Everything Gaus does, in two minutes.</p></div>
+          <button class="btn" id="tour-again" type="button">Take the tour</button>
+        </div>
+        <div class="guide">
+          <article><h3>What Gaus does</h3>
+            <p>Gaus keeps your games updated when they patch, so they're ready when you want to play. It opens the launcher during an update window, follows the download, and can power the PC down afterwards.</p></article>
+          <article><h3>Get started</h3>
+            <ol>
+              <li>Go to <b>Settings › Accounts and launchers</b> and add your launcher.</li>
+              <li>In <b>Library</b>, choose <b>Add a game</b>.</li>
+              <li>Select the game, choose <b>Schedule</b> and set when it usually patches, such as <b>Thu 11:00</b>. Times are South African time (SAST).</li>
+              <li>In the launcher, set the game to update automatically.</li>
+            </ol></article>
+          <article><h3>Downloads</h3>
+            <p>Start a Steam update yourself and Gaus picks it up on its own, for games in your Library. It appears in <b>Downloads</b> and in the bar along the bottom. You can also select a game and choose <b>Track download</b>.</p>
+            <p>Speed is shown in Mbps, as Steam reports it. The downloaded size comes from Steam's own count, which it updates every few minutes, so Gaus uses the speed to fill the gap. Other launchers don't share their progress, so for those Gaus only shows that they're busy.</p></article>
+          <article><h3>Screen saver</h3>
+            <p>While a download runs, show its art full screen with the progress, darken the screen, and dim or black out your other monitors. Your launcher is minimized and keeps downloading. Click or press Esc to leave. The monitors stay powered, and Gaus can't change your room lights.</p>
+            <p>To use your own pictures, go to <b>Settings › Screen saver</b> and choose <b>My pictures</b>. Gaus art is the default.</p></article>
+          <article><h3>Powering down</h3>
+            <p>Go to <b>Settings › When updates are done</b> to choose shut down, sleep or hibernate. Downloads you start yourself only count if you tick <b>Also after downloads I start myself</b>.</p>
+            <p>Gaus waits until nobody has used the PC for a while, then counts down. Moving the mouse cancels it. If the PC stays in use, it stays on. Open programs are closed, so save your work.</p></article>
+          <article><h3>If something looks wrong</h3>
+            <ul>
+              <li><b>A game won't update:</b> in Steam, open the game's Properties › Updates and turn on automatic updates.</li>
+              <li><b>The PC doesn't wake:</b> use the wake test in <b>Settings › Waking the PC</b>. A PC that's fully shut down can't wake itself.</li>
+              <li><b>Can't find Gaus:</b> it keeps running in the taskbar's hidden-icons area.</li>
+              <li><b>Anything else:</b> the <b>Log</b> shows what Gaus did and when.</li>
+            </ul></article>
+        </div>
+      </section>
+    </main>
+
+    <button class="dock" id="dock" type="button" aria-label="Open downloads"></button>
+  </div>
 </div>
 
 <!-- account -->
@@ -150,6 +225,48 @@
   </form>
 </dialog>
 
+<!-- screen saver offer -->
+<dialog id="dlg-saver" aria-labelledby="sv-title">
+  <form method="dialog" novalidate>
+    <div class="d-head"><h2 id="sv-title">Watch this update as a screen saver?</h2><p id="sv-sub"></p></div>
+    <div class="d-body">
+      <div class="field"><span class="hint">Pictures</span>
+        <div class="row wrap">
+          <fieldset class="seg" aria-label="Pictures">
+            <label><input type="radio" name="sv-src" value="gaus"><span>Gaus art</span></label>
+            <label><input type="radio" name="sv-src" value="mine"><span>My pictures</span></label>
+          </fieldset>
+          <button class="btn sm ghost" id="sv-pics" type="button"></button>
+        </div></div>
+      <div class="field"><span class="hint">How dark should this screen be?</span>
+        <fieldset class="seg" aria-label="Screen darkness">
+          <label><input type="radio" name="sv-dim" value="30"><span>A little</span></label>
+          <label><input type="radio" name="sv-dim" value="60"><span>Dim</span></label>
+          <label><input type="radio" name="sv-dim" value="80"><span>Very dim</span></label>
+        </fieldset></div>
+      <div class="field" id="sv-others-box"><span class="hint">Your other monitors</span>
+        <fieldset class="seg" aria-label="Other monitors">
+          <label><input type="radio" name="sv-others" value="keep"><span>Leave on</span></label>
+          <label><input type="radio" name="sv-others" value="dim"><span>Dim</span></label>
+          <label><input type="radio" name="sv-others" value="black"><span>Turn black</span></label>
+        </fieldset>
+        <span class="hint">“Turn black” covers them with solid black until the update ends. The monitors stay powered, and this only affects what's on screen, not your room lights. Click or press Esc to leave the screen saver.</span></div>
+      <label class="switch"><input type="checkbox" id="sv-never"><span class="track" aria-hidden="true"></span><span>Don't ask me again</span></label>
+    </div>
+    <div class="d-foot"><button class="btn ghost" id="sv-no" type="button">Not now</button><button class="btn primary" id="sv-ok" type="submit">Start screen saver</button></div>
+  </form>
+</dialog>
+
+<!-- the user's own screen saver pictures -->
+<dialog id="dlg-pics" aria-labelledby="pics-title">
+  <div class="d-head"><h2 id="pics-title">My screen saver</h2><p>Add pictures from your PC. Gaus keeps a copy, and your originals are never changed.</p></div>
+  <div class="d-body">
+    <div class="thumbs" id="pics"></div>
+    <p class="hint" id="pics-empty" style="margin:0">No pictures yet. Use large ones, at least 640×360.</p>
+  </div>
+  <div class="d-foot"><button class="btn ghost" type="button" data-close>Done</button><button class="btn primary" id="pics-add" type="button">Add pictures</button></div>
+</dialog>
+
 <!-- confirm / message -->
 <dialog id="dlg-ask" aria-labelledby="ask-title">
   <form method="dialog">
@@ -168,6 +285,17 @@
     <div class="bar" id="busy-bar"><i></i></div>
   </div></div>
 </dialog>
+
+<!-- welcome tour -->
+<div class="tour" id="tour" hidden>
+  <div class="tour-hole" id="tour-hole"></div>
+  <div class="tour-card" id="tour-card" role="dialog" aria-labelledby="tour-title" aria-describedby="tour-text">
+    <small id="tour-step"></small>
+    <h3 id="tour-title"></h3>
+    <p id="tour-text"></p>
+    <div class="row"><button class="btn sm ghost" id="tour-skip" type="button">Skip</button><span class="grow"></span><button class="btn sm" id="tour-back" type="button">Back</button><button class="btn sm primary" id="tour-next" type="button">Next</button></div>
+  </div>
+</div>
 
 <div id="toasts" aria-live="polite"></div>
 <script src="app.js"></script>

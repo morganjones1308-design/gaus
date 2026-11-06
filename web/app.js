@@ -82,32 +82,40 @@ function field(inputEl, errEl, msg) {
 function setState(st) {
   S = st; rows = st.rows || [];
   document.title = `${S.app.title} v${S.app.version}`;
-  $("#tagline").textContent = S.app.tagline;
-  renderAccounts(); renderLaunchers(); renderRows(true); renderBanner();
+  $("#version").textContent = `Version ${S.app.version}`;
+  renderAccounts(); renderLaunchers(); renderRows(true); renderBanner(); renderManage(); maybeTour();
+  if (st.prompt) window.Gaus.saverPrompt(st.prompt);
 }
 function activeAccount() { return S.accounts.find((a) => a.id === S.active); }
-function activeLauncher() { const a = activeAccount(); return a ? a.launchers.find((l) => l.id === filterLid) : null; }
 
 function renderAccounts() {
-  const box = $("#accounts"); box.textContent = "";
-  S.accounts.forEach((a) => {
-    const id = "acc-" + a.id;
-    box.append(el("label", { class: "chip" + (a.enabled ? "" : " off") },
-      el("input", { type: "radio", name: "account", id, checked: a.id === S.active,
-        onchange: async () => apply(await api.switch_account(a.id)) }),
-      el("span", {}, a.name, a.enabled ? "" : el("small", {}, "off"))));
-  });
-  $("#acc-del").disabled = S.accounts.length <= 1;
+  const box = $("#account"); box.textContent = "";
+  S.accounts.forEach((a) => box.append(el("option", { value: a.id, selected: a.id === S.active }, a.name + (a.enabled ? "" : " (off)"))));
 }
+$("#account").addEventListener("change", async (e) => apply(await api.switch_account(e.target.value)));
 function renderLaunchers() {
-  const acc = activeAccount(); const box = $("#launchers"); box.textContent = "";
+  const acc = activeAccount(); const box = $("#lc-filter"); box.textContent = "";
   if (!acc || !acc.launchers.some((l) => l.id === filterLid)) filterLid = "";
-  const mk = (id, label, cls, extra) => box.append(el("label", { class: "chip " + (cls || "") },
-    el("input", { type: "radio", name: "launcher", checked: id === filterLid, onchange: () => { filterLid = id; renderLaunchers(); renderRows(true); } }),
-    el("span", {}, label, extra ? el("small", {}, extra) : "")));
-  mk("", "All launchers");
-  (acc ? acc.launchers : []).forEach((l) => mk(l.id, l.name, l.enabled ? "" : "off", l.enabled ? "" : "off"));
-  $("#lc-edit").disabled = $("#lc-del").disabled = !filterLid;
+  box.append(el("option", { value: "" }, "All games"));
+  (acc ? acc.launchers : []).forEach((l) => box.append(el("option", { value: l.id, selected: l.id === filterLid }, l.name + (l.enabled ? "" : " (off)"))));
+}
+$("#lc-filter").addEventListener("change", (e) => { filterLid = e.target.value; renderRows(true); });
+$("#g-search").addEventListener("input", () => renderRows(true));
+/* accounts and launchers are looked after in Settings */
+function renderManage() {
+  const box = $("#manage"); if (!box) return;
+  const open = box.querySelector("details[open]") ? true : box.dataset.open === "1";
+  box.textContent = ""; box.dataset.open = open ? "1" : "";
+  const acc = activeAccount();
+  const line = (title, sub, ...btns) => el("div", { class: "setting" }, el("div", {}, el("div", { class: "t" }, title), sub ? el("div", { class: "d" }, sub) : null), el("div", { class: "row" }, ...btns));
+  const small = (text, onclick, cls) => el("button", { class: "btn sm " + (cls || "ghost"), type: "button", onclick }, text);
+  box.append(el("details", { class: "group", name: "settings", open: open || undefined },
+    el("summary", {}, "Accounts and launchers"),
+    line(acc.name, "The account you are using now", small("Edit", () => openAccount("edit")),
+      S.accounts.length > 1 ? small("Delete", deleteAccount, "ghost danger") : null, small("New account", () => openAccount("new"), "")),
+    ...acc.launchers.map((l) => line(l.name, `${l.games} game${l.games === 1 ? "" : "s"}` + (l.enabled ? "" : " · off"),
+      small("Edit", () => openLauncher(l)), small("Remove", () => removeLauncher(l), "ghost danger"))),
+    line("Using another launcher?", "", small("Add a launcher", () => openLauncher(null), ""))));
 }
 function renderBanner() {
   const b = $("#banner");
@@ -117,98 +125,165 @@ function renderBanner() {
   } else b.classList.remove("show");
 }
 
-function statusNode(text) {
-  const t = text || "Idle";
-  const span = el("span", { class: "status" });
-  if (/updating|downloading|starting|launching|checking|waiting|watching|opening|running/i.test(t) && !/not running/i.test(t)) span.append(penSvg());
-  else if (/fail|problem|error|not found|could not|gave up|give up|stalled/i.test(t)) span.append(tickSvg(true));
-  else if (/up to date|updated/i.test(t)) span.append(tickSvg(false));
-  span.append(t);
-  return span;
-}
+const statusClass = (t) => /fail|problem|error|not found|could not|gave up|give up|stalled/i.test(t) ? "bad"
+  : /updating|downloading|starting|launching|checking|waiting|watching|opening/i.test(t) ? "busy" : "";
 function renderRows(force) {
-  const list = rows.filter((r) => !filterLid || r.lid === filterLid);
+  const term = $("#g-search").value.trim().toLowerCase();
+  const list = rows.filter((r) => (!filterLid || r.lid === filterLid) && r.name.toLowerCase().includes(term));
   const json = JSON.stringify([list, selKey, filterLid]);
   if (!force && json === lastRowsJson) return;
   lastRowsJson = json;
-  const body = $("#rows"); body.textContent = "";
-  if (!list.some((r) => r.key === selKey)) selKey = "";
-  list.forEach((r) => {
-    const tr = el("tr", { tabindex: "0", "aria-selected": r.key === selKey ? "true" : "false", class: r.enabled ? "" : "gameoff", "data-key": r.key,
+  if (!list.some((r) => r.key === selKey)) selKey = list.length ? list[0].key : "";
+  const body = $("#rows"); const hadFocus = body.contains(document.activeElement); body.textContent = "";
+  list.forEach((r, i) => {
+    const b = el("button", { type: "button", "aria-selected": r.key === selKey ? "true" : "false", "data-key": r.key, title: r.name,
       onclick: () => select(r.key), ondblclick: () => editGame(),
       onkeydown: (e) => {
-        if (e.key === "Enter") editGame();
-        else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          e.preventDefault(); const i = list.findIndex((x) => x.key === r.key) + (e.key === "ArrowDown" ? 1 : -1);
-          if (list[i]) { select(list[i].key); $(`tr[data-key="${CSS.escape(list[i].key)}"]`)?.focus(); }
-        }
+        const n = list[i + (e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : NaN)];
+        if (n) { e.preventDefault(); select(n.key); $(`#rows button[data-key="${CSS.escape(n.key)}"]`)?.focus(); }
       } },
-      el("td", { class: "name", title: r.name }, r.name + (r.enabled ? "" : " (off)"), el("small", {}, r.launcher)),
-      el("td", {}, r.installed, r.latest !== "-" && r.latest !== r.installed ? el("span", { class: "newer" }, ` → ${r.latest}`) : null),
-      el("td", {}, r.patched), el("td", {}, r.next),
-      el("td", {}, statusNode(r.status)));
-    body.append(tr);
+      el("span", { class: "n" }, r.name), el("span", { class: "s " + statusClass(r.status) }, r.enabled ? r.status : "Off"));
+    body.append(el("li", { class: r.enabled ? "" : "off" }, b));
+    if (hadFocus && r.key === selKey) b.focus();
   });
-  const empty = $("#empty");
-  if (!list.length) {
-    empty.hidden = false; empty.textContent = "";
-    const acc = activeAccount();
-    if (acc && !acc.launchers.length) empty.append(el("h3", {}, "No launchers yet"), el("p", {}, "Add the launcher this account uses: Steam, Epic, GOG, EA, Ubisoft, Battle.net, Riot, Xbox, or any other."));
-    else empty.append(el("h3", {}, "No games here yet"), el("p", {}, "Press “Add game” to pick one."));
-  } else empty.hidden = true;
-  syncToolbar(); renderHint();
+  renderGamePage();
 }
-function renderHint() {
-  const acc = activeAccount(); const h = $("#games-hint");
-  if (!acc) return;
-  const shown = acc.launchers.filter((l) => !filterLid || l.id === filterLid);
-  if (!acc.launchers.length) h.textContent = "This account has no launchers yet. Use “Add launcher”.";
-  else if (shown.length === 1) h.textContent = `All times are SAST (UTC+2). ${S.launcher_types[shown[0].type].tip} Photos are openly licensed and credited on screen.`;
-  else h.textContent = "All times are SAST (UTC+2). Make sure each game updates automatically inside its own launcher. Photos are openly licensed and credited on screen.";
+function renderGamePage() {
+  const r = selRow(); const acc = activeAccount(); const empty = $("#empty");
+  $("#game-page").hidden = !r; empty.hidden = !!r; $("#g-more").open = false;
+  if (!r) {
+    empty.textContent = "";
+    if (acc && !acc.launchers.length) empty.append(el("h3", {}, "Add your first launcher"), el("p", {}, "Tell Gaus which launcher you use: Steam, Epic, GOG, EA, Ubisoft, Battle.net, Riot, Xbox or any other."), el("button", { class: "btn primary", type: "button", onclick: () => openLauncher(null) }, "Add a launcher"));
+    else if ($("#g-search").value.trim()) empty.append(el("h3", {}, "No matches"), el("p", {}, "No game in your list has that name."));
+    else empty.append(el("h3", {}, "No games here yet"), el("p", {}, "Add a game and Gaus keeps it up to date for you."), el("button", { class: "btn primary", type: "button", onclick: openAddGame }, "Add a game"));
+    return;
+  }
+  $("#gp-name").textContent = r.name;
+  const art = r.cover ? `url("${r.cover}")` : "none";
+  if ($("#hero").dataset.art !== art) { $("#hero").dataset.art = art; $("#hero").style.backgroundImage = art; }
+  $("#gp-status").textContent = r.status; $("#gp-status").className = statusClass(r.status) === "bad" ? "newer" : "";
+  $("#gp-next").textContent = r.next === "-" ? "None" : r.next === "no windows set" ? "Not scheduled" : `${r.next} SAST`;
+  $("#gp-patched").textContent = r.patched === "-" ? "Unknown" : `${r.patched} SAST`;
+  $("#gp-launcher").textContent = r.launcher;
+  const build = $("#gp-build"); build.textContent = r.installed === "-" ? "Unknown" : r.installed;
+  if (r.latest !== "-" && r.latest !== r.installed) build.append(el("span", { class: "newer" }, ` → ${r.latest}`));
+  syncToolbar();
 }
 function select(key) {
   selKey = key;
-  $$("#rows tr").forEach((tr) => tr.setAttribute("aria-selected", tr.dataset.key === key ? "true" : "false"));
-  syncToolbar();
+  $$("#rows button").forEach((b) => b.setAttribute("aria-selected", b.dataset.key === key ? "true" : "false"));
+  renderGamePage();
 }
 function syncToolbar() {
-  const has = !!selKey; const hasLc = !!activeAccount()?.launchers.length;
-  ["g-edit", "g-preview", "g-photos", "g-del"].forEach((id) => { $("#" + id).disabled = !has; });
-  $("#g-check").textContent = has ? "Check this game" : "Check all now";
-  $("#g-add").disabled = false; $("#g-add").title = hasLc ? "" : "Add a launcher first";
-  const r = selRow(); const now = r && live.find((i) => i.appid === r.appid); const t = $("#g-track");
-  t.disabled = !r || !r.precise || (now && !now.tracked);
+  const r = selRow(); if (!r) return;
+  const now = live.find((i) => i.appid === r.appid); const t = $("#g-track");
+  t.disabled = !r.precise || (now && !now.tracked);
   t.textContent = now && now.tracked ? "Stop tracking" : "Track download";
-  t.title = r && !r.precise ? "Live tracking works for Steam games" : "";
+  t.title = !r.precise ? "Live tracking works for Steam games" : "";
+  $("#g-saver").hidden = !now;
+  $("#gp-live").hidden = !now;
+  if (now) {
+    const bar = $("#gp-live .bar"); bar.classList.toggle("indeterminate", now.progress == null);
+    bar.firstElementChild.style.setProperty("--p", ((now.progress || 0) * 100).toFixed(1) + "%");
+    $("#gp-live-text").textContent = now.detail || "Waiting for Steam…";
+  }
 }
 const selRow = () => rows.find((r) => r.key === selKey);
 
-/* ---------- live downloads ---------- */
+/* ---------- downloads ---------- */
+const coverOf = (appid) => { const r = rows.find((x) => x.appid === appid); return r && r.cover ? `url("${r.cover}")` : "none"; };
 function renderLive(items) {
-  live = items; const box = $("#live"); box.hidden = !items.length;
+  live = items; const box = $("#live");
   $$(".live-card", box).forEach((c) => { if (!items.some((i) => String(i.appid) === c.dataset.appid)) c.remove(); });
   items.forEach((i) => {
     let c = box.querySelector(`[data-appid="${i.appid}"]`);
     if (!c) {
       c = el("article", { class: "live-card", "data-appid": i.appid },
-        el("div", { class: "live-head" }, el("span", { class: "live-tag" }, "LIVE"), el("h3", {}, i.name), el("span", { class: "live-status" }),
-          el("button", { class: "btn sm ghost", type: "button", onclick: () => setTracking(i.appid, i.name, false) }, "Stop tracking")),
-        el("div", { class: "bar" }, el("i")), el("p", { class: "live-detail" }), el("p", { class: "live-note" }));
+        el("div", { class: "live-art", style: `background-image:${coverOf(i.appid)}` }),
+        el("div", { class: "live-body" },
+          el("div", { class: "live-head" }, el("span", { class: "live-tag" }, "LIVE"), el("h3", {}, i.name), el("span", { class: "live-status" })),
+          el("div", { class: "bar" }, el("i")), el("p", { class: "live-detail" }), el("p", { class: "live-note" }),
+          el("div", { class: "live-btns" },
+            el("button", { class: "btn sm", type: "button", onclick: () => openSaver(i) }, "Screen saver"),
+            el("button", { class: "btn sm ghost stop", type: "button", onclick: () => setTracking(i.appid, i.name, false) }, "Stop tracking"))));
       box.append(c);
     }
     $(".live-status", c).textContent = i.status;
     $(".live-detail", c).textContent = i.detail || "Waiting for Steam…";
     $(".live-note", c).textContent = i.note;
-    $("button", c).hidden = !i.tracked;
+    $(".stop", c).hidden = !i.tracked;
     const bar = $(".bar", c); bar.classList.toggle("indeterminate", i.progress == null);
     bar.firstElementChild.style.setProperty("--p", ((i.progress || 0) * 100).toFixed(1) + "%");
   });
+  const n = items.length; const count = $("#dl-count");
+  count.hidden = !n; count.textContent = n;
+  $("#dl-sub").textContent = n ? "" : "Nothing is downloading. Updates you start in Steam show up here by themselves.";
+  const dock = $("#dock"); dock.textContent = "";
+  const first = items[0];
+  if (first) {
+    const bar = el("div", { class: "bar" + (first.progress == null ? " indeterminate" : "") }, el("i", { style: `--p:${((first.progress || 0) * 100).toFixed(1)}%` }));
+    dock.append(el("b", {}, first.name), el("span", {}, `${first.status}` + (n > 1 ? `  ·  ${n - 1} more` : "")), bar);
+  } else dock.append("No downloads");
   syncToolbar();
 }
 async function setTracking(appid, name, on) {
   await api.track(appid, on);
   toast(on ? `Tracking ${name}…` : `Stopped tracking ${name}. The download carries on.`);
 }
+$("#dock").onclick = () => showTab("downloads");
+
+/* ---------- screen saver ---------- */
+const svDlg = $("#dlg-saver"); wireDialog(svDlg);
+let svItem = null;
+function openSaver(item) {
+  if (svDlg.open) return;
+  svItem = item;
+  $("#sv-sub").textContent = `${item.name} is downloading. Gaus can show its art full screen with the download progress, and darken the screen until it's done.`;
+  const pick = (name, v) => { const i = $(`input[name="${name}"][value="${v}"]`) || $(`input[name="${name}"]`); i.checked = true; };
+  pick("sv-dim", S.settings.saver_dim); pick("sv-others", S.settings.saver_others); pick("sv-src", S.settings.saver_source);
+  $("#sv-never").checked = !S.settings.saver_ask;
+  refreshPics();
+  svDlg.showModal(); $("#sv-ok").focus();
+}
+/* the user's own pictures. Gaus art stays the default until they choose otherwise */
+const picsDlg = $("#dlg-pics"); wireDialog(picsDlg);
+let pics = [];
+function drawPics() {
+  const box = $("#pics"); box.textContent = "";
+  pics.forEach((p) => box.append(el("button", { class: "thumb", type: "button", title: `Remove ${p.title}`, "aria-label": `Remove ${p.title}`, style: `background-image:url("${p.url}")`,
+    onclick: async () => { pics = await api.remove_saver_image(p.file); drawPics(); } })));
+  $("#pics-empty").hidden = !!pics.length;
+  const n = pics.length; const label = n ? `${n} picture${n === 1 ? "" : "s"} · Edit` : "Choose pictures";
+  [$("#sv-pics"), $("#set-pics")].forEach((b) => { if (b) b.textContent = label; });
+}
+async function refreshPics() { pics = await api.saver_images(); drawPics(); }
+async function openPics() { await refreshPics(); picsDlg.showModal(); }
+$("#pics-add").onclick = (e) => busy(e.currentTarget, async () => {
+  const r = await api.add_saver_images();
+  if (r.error) return toast(r.error, true);
+  if (r.skipped) toast(`${r.skipped} skipped: too small, not a picture, or already added.`, true);
+  await refreshPics();
+});
+picsDlg.addEventListener("close", () => {   // "My pictures" without any pictures falls back to Gaus art
+  if (pics.length) return;
+  $('input[name="sv-src"][value="gaus"]').checked = true;
+  if (settingInputs.saver_source) settingInputs.saver_source.set("gaus");
+});
+$("#sv-pics").onclick = openPics;
+$$('input[name="sv-src"]').forEach((i) => i.addEventListener("change", () => { if (i.value === "mine" && !pics.length) openPics(); }));
+$("#sv-no").onclick = async () => {
+  if ($("#sv-never").checked) { S.settings.saver_ask = false; if (settingInputs.saver_ask) settingInputs.saver_ask.set(false); apply(await api.save_settings({ saver_ask: false })); }
+  svDlg.close();
+};
+$("#dlg-saver form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const dim = +$('input[name="sv-dim"]:checked').value, others = $('input[name="sv-others"]:checked').value, source = $('input[name="sv-src"]:checked').value;
+  await busy($("#sv-ok"), async () => {
+    const res = await api.start_saver(svItem.appid, dim, others, source, !$("#sv-never").checked);
+    if (apply(res)) svDlg.close();
+  });
+});
+$("#g-saver").onclick = () => { const r = selRow(); const now = r && live.find((i) => i.appid === r.appid); if (now) openSaver(now); };
 
 /* ---------- accounts ---------- */
 const accDlg = $("#dlg-account"); wireDialog(accDlg);
@@ -233,20 +308,18 @@ $("#dlg-account form").addEventListener("submit", async (e) => {
       const res = await api.add_account(name);
       if (apply(res)) { accDlg.close(); if (await ask({ title: "Add a launcher?", body: `Add a launcher for ${name} now?`, ok: "Add launcher", cancel: "Later" })) openLauncher(null); }
     } else if (accMode === "welcome") {
-      accMode = null; apply(await api.welcome_done(name)); accDlg.close();
+      accMode = null; apply(await api.welcome_done(name)); accDlg.close(); maybeTour();
     } else {
       const a = activeAccount(); apply(await api.edit_account(a.id, name, $("#acc-enabled").checked)); accDlg.close();
     }
   });
 });
-$("#acc-new").onclick = () => openAccount("new");
-$("#acc-edit").onclick = () => openAccount("edit");
-$("#acc-del").onclick = async () => {
+async function deleteAccount() {
   const a = activeAccount(); if (!a || S.accounts.length <= 1) return notice("You need at least one account.");
   const n = a.launchers.reduce((s, l) => s + l.games, 0);
   if (await ask({ title: "Delete account", body: `Delete the account ${a.name} with its ${a.launchers.length} launcher(s) and ${n} game(s)? Nothing is uninstalled.`, ok: "Delete", danger: true }))
     apply(await api.remove_account(a.id));
-};
+}
 
 /* ---------- launchers ---------- */
 const lcDlg = $("#dlg-launcher"); wireDialog(lcDlg);
@@ -298,12 +371,9 @@ $("#dlg-launcher form").addEventListener("submit", async (e) => {
     if (apply(res)) lcDlg.close();
   });
 });
-$("#lc-add").onclick = () => openLauncher(null);
-$("#lc-edit").onclick = () => { const l = activeLauncher(); if (l) openLauncher(l); else notice("Pick one launcher in the Launcher row first."); };
-$("#lc-del").onclick = async () => {
-  const l = activeLauncher(); if (!l) return notice("Pick one launcher in the Launcher row first.");
+async function removeLauncher(l) {
   if (await ask({ title: "Remove launcher", body: `Remove ${l.name} and its ${l.games} game(s) from this account? Nothing is uninstalled.`, ok: "Remove", danger: true })) apply(await api.remove_launcher(l.id));
-};
+}
 
 /* ---------- add game ---------- */
 const agDlg = $("#dlg-addgame"); wireDialog(agDlg);
@@ -411,26 +481,50 @@ $("#g-del").onclick = async () => {
   if (await ask({ title: "Remove game", body: `Remove ${r.name} from this launcher? Its downloaded photos are deleted when no account uses it any more.`, ok: "Remove", danger: true })) apply(await api.remove_game(r.lid, r.appid));
 };
 $("#g-track").onclick = () => { const r = selRow(); if (r) setTracking(r.appid, r.name, !live.some((i) => i.appid === r.appid)); };
-$("#g-check").onclick = async () => { const r = selRow(); await api.check_now(r ? r.appid : null); toast(r ? `Checking ${r.name}…` : "Checking all games…"); };
+$("#g-check").onclick = async () => { const r = selRow(); if (r) { await api.check_now(r.appid); toast(`Checking ${r.name}…`); } };
+$("#g-check-all").onclick = async () => { await api.check_now(null); toast("Checking all games…"); };
 $("#g-preview").onclick = async () => { const r = selRow(); if (!r) return; const res = await api.preview(r.appid); if (res && res.message) notice(res.message); };
 $("#g-photos").onclick = async () => {
   const r = selRow(); if (!r) return;
   if (await ask({ title: "Refresh photos", body: "Replace this game's photos with a fresh set?", ok: "Replace" })) { await api.refresh_photos(r.appid); toast("Fetching new photos…"); }
 };
 
+/* ---------- stats for nerds ---------- */
+let statsTimer = 0;
+const pc = (v) => v == null ? "…" : `${v.toFixed(v < 10 ? 2 : 1)}%`;
+const mins = (s) => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
+async function drawStats() {
+  const d = await api.nerd_stats();
+  if (d.error) { $("#st-engine").textContent = d.error; return; }
+  $("#st-ram").textContent = `${Math.round(d.ram_mb)} MB`;
+  $("#st-ram-sub").textContent = `${d.ram_of_pc_pc.toFixed(1)}% of ${d.pc_ram_gb.toFixed(0)} GB`;
+  $("#st-cpu").textContent = pc(d.cpu_pc);
+  $("#st-cpu-sub").textContent = d.cpu_pc == null ? "Measuring…" : `Across ${d.cores} logical cores`;
+  $("#st-tray").textContent = d.tray ? `${Math.round(d.tray.ram_mb)} MB` : "Not yet";
+  $("#st-tray-sub").textContent = d.tray ? `${pc(d.tray.cpu_pc)} CPU, at ${d.tray.when}` : "Measured about 50 seconds after you close the window to the tray";
+  const body = $("#st-rows"); body.textContent = "";
+  d.rows.forEach((r) => body.append(el("tr", {}, el("td", {}, r.role), el("td", {}, String(r.pid)), el("td", { class: "num" }, r.ram.toFixed(1)),
+    el("td", { class: "num" }, r.commit.toFixed(1)), el("td", { class: "num" }, pc(r.cpu)), el("td", { class: "num" }, String(r.threads)))));
+  body.append(el("tr", { class: "sum" }, el("td", {}, "Total"), el("td", {}), el("td", { class: "num" }, d.ram_mb.toFixed(1)), el("td", { class: "num" }, d.commit_mb.toFixed(1)), el("td", { class: "num" }, pc(d.cpu_pc)), el("td", {})));
+  $("#st-engine").textContent = `Running for ${mins(d.uptime_s)}, ${d.cpu_total_s.toFixed(0)} seconds of CPU time so far. The last update check took ${d.tick_ms.toFixed(1)} ms of CPU, and that check runs every ${d.tick_s} seconds.`;
+}
+
 /* ---------- tabs ---------- */
 function showTab(name) {
-  ["games", "settings", "log"].forEach((n) => {
+  ["games", "downloads", "settings", "log", "guide", "stats"].forEach((n) => {
     $("#tab-" + n).setAttribute("aria-selected", String(n === name));
     $("#p-" + n).classList.toggle("show", n === name);
   });
+  clearInterval(statsTimer);          // only measure while someone is looking
+  if (name === "stats") { drawStats(); statsTimer = setInterval(drawStats, 2000); }
   if (name === "log") { const l = $("#log"); l.scrollTop = l.scrollHeight; }
 }
 $$("nav.tabs button").forEach((b, i, all) => {
   b.addEventListener("click", () => showTab(b.id.replace("tab-", "")));
   b.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const n = all[(i + (e.key === "ArrowRight" ? 1 : all.length - 1)) % all.length]; n.focus(); n.click();
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const n = all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]; n.focus(); n.click();
   });
 });
 
@@ -458,6 +552,12 @@ const SCHEMA = [
     { key: "wake_from_sleep", type: "toggle", title: "Wake the PC from sleep or hibernate before each window" },
     { key: "wake_lead_minutes", type: "number", title: "…wake it this long before watching starts", min: 1, max: 30, unit: "min" },
     { custom: "wake" } ] },
+  { group: "Screen saver", items: [
+    { key: "saver_ask", type: "toggle", title: "Offer the screen saver when a download starts", desc: "You can also start it any time from Downloads." },
+    { key: "saver_source", type: "radio", title: "Pictures", options: [["Gaus art", "gaus"], ["My pictures", "mine"]], desc: "Gaus art shows the game that's updating." },
+    { custom: "pics" },
+    { key: "saver_dim", type: "radio", title: "How dark this screen goes", options: [["A little", "30"], ["Dim", "60"], ["Very dim", "80"]] },
+    { key: "saver_others", type: "radio", title: "Other monitors", options: [["Leave on", "keep"], ["Dim", "dim"], ["Turn black", "black"]], desc: "They stay powered. “Turn black” covers them with solid black." } ] },
   { group: "Loading screen", items: [
     { key: "loading_screen", type: "radio", title: "Show it", options: [["Auto", "auto"], ["Fullscreen", "fullscreen"], ["Window", "windowed"], ["Off", "off"]], desc: "Auto means fullscreen when nobody is using the PC, otherwise a window." },
     { key: "slide_seconds", type: "number", title: "Seconds per photo", min: 3, max: 30, unit: "sec" },
@@ -486,9 +586,15 @@ function numberControl(it) {
 }
 function buildSettings() {
   const root = $("#settings"); root.textContent = "";
+  root.append(el("div", { id: "manage" }));
   SCHEMA.forEach((g) => {
-    const box = el("section", { class: "group" }, el("h2", {}, g.group));
+    const box = el("details", { class: "group", name: "settings" }, el("summary", {}, g.group));
     g.items.forEach((it) => {
+      if (it.custom === "pics") {
+        box.append(el("div", { class: "setting" }, el("div", {}, el("div", { class: "t" }, "My screen saver"), el("div", { class: "d" }, "Pick the pictures it shows when “My pictures” is on.")),
+          el("button", { class: "btn sm", type: "button", id: "set-pics", onclick: openPics }, "Choose pictures")));
+        return;
+      }
       if (it.custom === "wake") {
         const b1 = el("button", { class: "btn sm", type: "button", onclick: (e) => wakeCheck(e.currentTarget) }, "Check wake setup");
         const b2 = el("button", { class: "btn sm", type: "button", onclick: (e) => wakeTest(e.currentTarget) }, "Test wake (2 min)");
@@ -525,7 +631,8 @@ function buildSettings() {
     root.append(box);
   });
   const save = el("button", { class: "btn primary", type: "button", id: "save-settings", onclick: (e) => saveSettings(e.currentTarget) }, "Save settings");
-  root.append(el("div", { class: "savebar" }, save, el("span", { class: "hint", id: "save-msg", role: "status" })));
+  root.after(el("div", { class: "savebar" }, save, el("span", { class: "hint", id: "save-msg", role: "status" })));
+  renderManage(); refreshPics();
 }
 function refreshNotes() { const n = $("#note-after_action"); if (n && settingInputs.after_action) n.textContent = AFTER_NOTES[settingInputs.after_action.get()] || ""; }
 function fillSettings() { Object.entries(settingInputs).forEach(([k, c]) => c.set(S.settings[k])); refreshNotes(); }
@@ -564,11 +671,56 @@ $("#dlg-busy").addEventListener("cancel", (e) => e.preventDefault());
 $("#banner-btn").onclick = askInstall;
 function setBar(p) { const b = $("#busy-bar"); b.classList.toggle("indeterminate", p == null); b.firstElementChild.style.setProperty("--p", (p || 0) + "%"); }
 
+/* ---------- welcome tour ---------- */
+const TOUR = [
+  { at: "#tab-games", tab: "games", title: "Your Library", text: "Every game Gaus looks after is here. Select one to see when it next updates and what you can do with it." },
+  { at: "#g-add", tab: "games", title: "Add your games", text: "Start here. Gaus keeps only the games you add up to date." },
+  { at: ".actions", tab: "games", title: "One game, one place", text: "Check for an update, follow a download, or set a schedule so the game updates when it usually patches." },
+  { at: "#tab-downloads", tab: "downloads", title: "Downloads", text: "Live progress appears here, even for Steam updates you started yourself. From here you can also start the screen saver, using Gaus art or your own pictures." },
+  { at: "#dock", tab: "downloads", title: "Always in view", text: "This bar shows what's downloading from any page. Click it to jump to Downloads." },
+  { at: "#tab-settings", tab: "settings", title: "Settings", text: "Add launchers, choose whether the PC shuts down or sleeps after updates, and set up the screen saver." },
+  { at: "#tab-guide", tab: "guide", title: "That's the tour", text: "The Guide explains everything in more detail, and you can take this tour again from there." },
+];
+let tourAt = -1;
+function maybeTour() {
+  if (S.shown && !S.settings.tour_done && tourAt < 0 && !$("dialog[open]")) startTour();
+}
+function startTour() { $("#tour").hidden = false; tourAt = -1; tourMove(1); }
+function tourMove(d) {
+  let i = tourAt + d;
+  const usable = (s) => { showTab(s.tab); const n = $(s.at); return n && n.getBoundingClientRect().width > 0; };
+  while (TOUR[i] && !usable(TOUR[i])) i += d;       // no games yet means no game actions to point at
+  if (!TOUR[i]) return d > 0 ? endTour() : undefined;
+  tourAt = i; const s = TOUR[i];
+  const r = $(s.at).getBoundingClientRect(); const hole = $("#tour-hole"); const card = $("#tour-card");
+  Object.assign(hole.style, { left: r.left - 5 + "px", top: r.top - 5 + "px", width: r.width + 10 + "px", height: r.height + 10 + "px" });
+  $("#tour-step").textContent = `${i + 1} of ${TOUR.length}`;
+  $("#tour-title").textContent = s.title; $("#tour-text").textContent = s.text;
+  $("#tour-back").hidden = i === 0;
+  $("#tour-next").textContent = i === TOUR.length - 1 ? "Done" : "Next";
+  const w = card.offsetWidth, h = card.offsetHeight, gap = 14;
+  const left = r.right + gap + w < innerWidth ? r.right + gap : Math.max(gap, Math.min(r.left, innerWidth - w - gap));
+  const beside = r.right + gap + w < innerWidth;
+  const top = beside ? Math.max(gap, Math.min(r.top, innerHeight - h - gap)) : r.top - h - gap > 0 ? r.top - h - gap : Math.min(r.bottom + gap, innerHeight - h - gap);
+  Object.assign(card.style, { left: left + "px", top: top + "px" });
+  $("#tour-next").focus();
+}
+function endTour() {
+  $("#tour").hidden = true; tourAt = -1; showTab("games");
+  if (!S.settings.tour_done) { S.settings.tour_done = true; api.save_settings({ tour_done: true }); }
+}
+$("#tour-next").onclick = () => tourMove(1);
+$("#tour-back").onclick = () => tourMove(-1);
+$("#tour-skip").onclick = endTour;
+$("#tour-again").onclick = startTour;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tourAt >= 0) endTour(); });
+
 /* ---------- bridge from Python ---------- */
 window.Gaus = {
   state(st) { const first = !S; setState(st); if (first) { buildSettings(); fillSettings(); } },
   rows(r) { rows = r; renderRows(false); },
   live: renderLive,
+  saverPrompt(item) { if (S && tourAt < 0) { showTab("downloads"); openSaver(item); } },
   log: addLog,
   update(info) { if (S) { S.update = info; renderBanner(); } },
   notice(text, title) { notice(text, title); },
@@ -581,7 +733,6 @@ window.Gaus = {
 };
 
 async function init() {
-  $("#rows").append(...[0, 1, 2].map(() => el("tr", {}, ...Array.from({ length: 5 }, () => el("td", {}, el("div", { class: "skel", style: "height:14px;width:80%" }))))));
   const st = await api.ready();
   window.Gaus.state(st);
   (await api.log_tail()).forEach(addLog);
