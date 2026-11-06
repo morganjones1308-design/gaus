@@ -23,7 +23,7 @@ const penSvg = () => {
 };
 const tickSvg = (bad) => {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  s.setAttribute("viewBox", "0 0 16 16"); s.setAttribute("class", "tick"); s.setAttribute("aria-hidden", "true");
+  s.setAttribute("viewBox", "0 0 16 16"); s.setAttribute("class", bad ? "tick bad" : "tick"); s.setAttribute("aria-hidden", "true");
   const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
   p.setAttribute("d", bad ? "M8 2.5v6.5M8 12.2v.8" : "M2.5 8.5l3.5 3.5 7.5-8");
   p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2.4");
@@ -35,6 +35,7 @@ let rows = [];
 let selKey = "";
 let filterLid = "";
 let lastRowsJson = "";
+let live = [];           // downloads being followed right now
 
 /* ---------- small UI helpers ---------- */
 function toast(msg, err) {
@@ -142,9 +143,9 @@ function renderRows(force) {
           if (list[i]) { select(list[i].key); $(`tr[data-key="${CSS.escape(list[i].key)}"]`)?.focus(); }
         }
       } },
-      el("td", { class: "name", title: r.name }, r.name + (r.enabled ? "" : " (off)")),
-      el("td", {}, r.launcher), el("td", {}, r.installed), el("td", {}, r.latest),
-      el("td", {}, r.patched), el("td", {}, r.next), el("td", {}, String(r.photos)),
+      el("td", { class: "name", title: r.name }, r.name + (r.enabled ? "" : " (off)"), el("small", {}, r.launcher)),
+      el("td", {}, r.installed, r.latest !== "-" && r.latest !== r.installed ? el("span", { class: "newer" }, ` → ${r.latest}`) : null),
+      el("td", {}, r.patched), el("td", {}, r.next),
       el("td", {}, statusNode(r.status)));
     body.append(tr);
   });
@@ -175,8 +176,38 @@ function syncToolbar() {
   ["g-edit", "g-preview", "g-photos", "g-del"].forEach((id) => { $("#" + id).disabled = !has; });
   $("#g-check").textContent = has ? "Check this game" : "Check all now";
   $("#g-add").disabled = false; $("#g-add").title = hasLc ? "" : "Add a launcher first";
+  const r = selRow(); const now = r && live.find((i) => i.appid === r.appid); const t = $("#g-track");
+  t.disabled = !r || !r.precise || (now && !now.tracked);
+  t.textContent = now && now.tracked ? "Stop tracking" : "Track download";
+  t.title = r && !r.precise ? "Live tracking works for Steam games" : "";
 }
 const selRow = () => rows.find((r) => r.key === selKey);
+
+/* ---------- live downloads ---------- */
+function renderLive(items) {
+  live = items; const box = $("#live"); box.hidden = !items.length;
+  $$(".live-card", box).forEach((c) => { if (!items.some((i) => String(i.appid) === c.dataset.appid)) c.remove(); });
+  items.forEach((i) => {
+    let c = box.querySelector(`[data-appid="${i.appid}"]`);
+    if (!c) {
+      c = el("article", { class: "live-card", "data-appid": i.appid },
+        el("div", { class: "live-head" }, el("span", { class: "live-tag" }, "LIVE"), el("h3", {}, i.name), el("span", { class: "live-status" }),
+          el("button", { class: "btn sm ghost", type: "button", onclick: () => setTracking(i.appid, i.name, false) }, "Stop tracking")),
+        el("div", { class: "bar" }, el("i")), el("p", { class: "live-detail" }));
+      box.append(c);
+    }
+    $(".live-status", c).textContent = i.status;
+    $(".live-detail", c).textContent = i.detail || "Waiting for Steam…";
+    $("button", c).hidden = !i.tracked;
+    const bar = $(".bar", c); bar.classList.toggle("indeterminate", i.progress == null);
+    bar.firstElementChild.style.setProperty("--p", ((i.progress || 0) * 100).toFixed(1) + "%");
+  });
+  syncToolbar();
+}
+async function setTracking(appid, name, on) {
+  await api.track(appid, on);
+  toast(on ? `Tracking ${name}…` : `Stopped tracking ${name}. The download carries on.`);
+}
 
 /* ---------- accounts ---------- */
 const accDlg = $("#dlg-account"); wireDialog(accDlg);
@@ -378,6 +409,7 @@ $("#g-del").onclick = async () => {
   const r = selRow(); if (!r) return notice("Select a game in the list first.");
   if (await ask({ title: "Remove game", body: `Remove ${r.name} from this launcher? Its downloaded photos are deleted when no account uses it any more.`, ok: "Remove", danger: true })) apply(await api.remove_game(r.lid, r.appid));
 };
+$("#g-track").onclick = () => { const r = selRow(); if (r) setTracking(r.appid, r.name, !live.some((i) => i.appid === r.appid)); };
 $("#g-check").onclick = async () => { const r = selRow(); await api.check_now(r ? r.appid : null); toast(r ? `Checking ${r.name}…` : "Checking all games…"); };
 $("#g-preview").onclick = async () => { const r = selRow(); if (!r) return; const res = await api.preview(r.appid); if (res && res.message) notice(res.message); };
 $("#g-photos").onclick = async () => {
@@ -405,6 +437,7 @@ $$("nav.tabs button").forEach((b, i, all) => {
 const AFTER_NOTES = { sleep: "The PC sleeps, and Gaus can wake it again for the next window.", hibernate: "The PC hibernates, and Gaus can wake it again for the next window.", shutdown: "The PC shuts down. A shut-down PC can NOT wake itself, so switch it on yourself before the next window." };
 const SCHEMA = [
   { group: "Finding updates", items: [
+    { key: "auto_track", type: "toggle", title: "Track Steam downloads I start myself", desc: "Shows live progress for your games here. Tracking never opens Steam or powers the PC down, but it keeps the PC awake until the download ends." },
     { key: "remote_check", type: "toggle", title: "Steam: check the latest build first", desc: "Asks api.steamcmd.net before opening Steam, so Steam is only opened when there is something to get." },
     { key: "remote_poll_seconds", type: "number", title: "Re-check every", min: 60, max: 3600, step: 30, unit: "sec" },
     { key: "start_early_minutes", type: "number", title: "Start watching before the window", min: 0, max: 60, unit: "min" },
@@ -533,6 +566,7 @@ function setBar(p) { const b = $("#busy-bar"); b.classList.toggle("indeterminate
 window.Gaus = {
   state(st) { const first = !S; setState(st); if (first) { buildSettings(); fillSettings(); } },
   rows(r) { rows = r; renderRows(false); },
+  live: renderLive,
   log: addLog,
   update(info) { if (S) { S.update = info; renderBanner(); } },
   notice(text, title) { notice(text, title); },
@@ -545,7 +579,7 @@ window.Gaus = {
 };
 
 async function init() {
-  $("#rows").append(...[0, 1, 2].map(() => el("tr", {}, ...Array.from({ length: 8 }, () => el("td", {}, el("div", { class: "skel", style: "height:14px;width:80%" }))))));
+  $("#rows").append(...[0, 1, 2].map(() => el("tr", {}, ...Array.from({ length: 5 }, () => el("td", {}, el("div", { class: "skel", style: "height:14px;width:80%" }))))));
   const st = await api.ready();
   window.Gaus.state(st);
   (await api.log_tail()).forEach(addLog);

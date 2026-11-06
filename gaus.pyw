@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.8"
+APP_VERSION = "1.9"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -120,6 +120,7 @@ BAD_TITLE_WORDS = ("logo", "icon", "flag", "map of", "diagram", "coat of arms", 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "paused": False,
+    "auto_track": True,                # follow Steam downloads the user starts themselves
     "remote_check": True,
     "remote_poll_seconds": 180,
     "start_early_minutes": 5,
@@ -620,6 +621,51 @@ def manifest_idle(m: dict[str, Any]) -> bool:
 
 def manifest_busy(m: dict[str, Any]) -> bool:
     return bool(m["state"] & BUSY_MASK) or m["target"] not in (0, m["buildid"])
+
+
+_STEAM_LOG_LINE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] (?:AppID (\d+) (?:update started : download "
+                             r"(\d+)/(\d+)|App update changed : (.*))|Current download rate: ([\d.]+) Mbps)", re.M)
+
+
+def steam_live(steam: Optional[Path]) -> dict[int, dict[str, Any]]:
+    """What Steam is doing right now, from the end of its content log. The appmanifest is only rewritten when a
+    download starts or stops, so it cannot show progress. Bytes are estimated by adding up the download rate
+    Steam logs about once a minute, starting from the figure in the last "update started" line."""
+    if steam is None:
+        return {}
+    try:
+        with open(steam / "logs" / "content_log.txt", "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 1_000_000))
+            text = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return {}
+    apps: dict[int, dict[str, Any]] = {}
+    rate, rate_t = 0.0, 0.0
+    for line in _STEAM_LOG_LINE.finditer(text):
+        when, appid, dl, total, changed, mbps = line.groups()
+        if appid and changed is not None:
+            apps.setdefault(int(appid), {"state": "", "dl": 0.0, "total": 0, "t": 0.0})["state"] = changed.strip()
+        elif appid:
+            apps[int(appid)] = {"state": "Running Update", "dl": float(dl), "total": int(total),
+                                "t": datetime.strptime(when, "%Y-%m-%d %H:%M:%S").timestamp()}
+        else:
+            rate = float(mbps) * 125_000    # Mbps to bytes per second
+            rate_t = datetime.strptime(when, "%Y-%m-%d %H:%M:%S").timestamp()
+            for a in apps.values():
+                if "Downloading" in a["state"] and a["t"]:
+                    a["dl"] += rate * (rate_t - a["t"])
+                a["t"] = rate_t
+    now = time.time()
+    fresh = now - rate_t < 180
+    for a in apps.values():
+        downloading = "Downloading" in a["state"] and fresh
+        a["active"] = "Running Update" in a["state"]
+        a["speed"] = rate if downloading else 0.0
+        if downloading and a["t"]:
+            a["dl"] += rate * (now - a["t"])
+        a["dl"] = min(a["dl"], a["total"])
+    return apps
 
 
 def _run_hidden(cmd: list[str], timeout: int = 15) -> subprocess.CompletedProcess:
@@ -1759,12 +1805,14 @@ def _alive(p: Any) -> bool:
 
 class Session:
     def __init__(self, game: dict[str, Any], key: str, manual: bool,
-                 window_end: Optional[datetime]) -> None:
+                 window_end: Optional[datetime], tracked: bool = False) -> None:
         self.game = game
         self.appid = int(game["appid"])
         self.name = str(game["name"])
         self.key = key
         self.manual = manual
+        self.tracked = tracked           # only following a download: never opens Steam or the loading screen
+        self.live_seen = time.time()
         self.window_end = window_end
         self.phase = "watching"          # watching -> launching -> downloading -> done
         self.result: Optional[str] = None  # updated | up-to-date | failed | skipped
@@ -1806,6 +1854,9 @@ class Engine(threading.Thread):
         self.lock = threading.Lock()
         self.sessions: dict[int, Session] = {}
         self.manual_requests: list[Optional[int]] = []
+        self.track_requests: list[tuple[int, bool]] = []
+        self.track_off: set[int] = set()     # the user pressed Stop tracking: leave this download alone
+        self.live: dict[int, dict[str, Any]] = {}
         st = read_json(STATE_PATH, {})
         self.state: dict[str, Any] = st if isinstance(st, dict) else {}
         self.state.setdefault("handled", {})
@@ -1847,6 +1898,10 @@ class Engine(threading.Thread):
     def request_check(self, appid: Optional[int]) -> None:
         with self.lock:
             self.manual_requests.append(appid)
+
+    def set_tracking(self, appid: int, on: bool) -> None:
+        with self.lock:
+            self.track_requests.append((appid, on))
 
     def countdown_done(self, proceed: bool) -> None:
         self.countdown_answer = proceed
@@ -1891,13 +1946,34 @@ class Engine(threading.Thread):
         now = now_sast()
         steam = self._steam_dir(games)
         self._refresh_info(games)
+        self.live = steam_live(steam)
 
         with self.lock:
             requests, self.manual_requests = self.manual_requests, []
+            tracks, self.track_requests = self.track_requests, []
         for appid in requests:
             for g in games:
                 if (appid is None or g["appid"] == appid) and g["appid"] not in self.sessions:
                     self._begin(g, f"manual|{g['appid']}|{now.isoformat()}", True, None)
+        for appid, on in tracks:
+            s = self.sessions.get(appid)
+            if on:
+                self.track_off.discard(appid)
+            elif s is not None and s.tracked:
+                self.track_off.add(appid)
+                del self.sessions[appid]
+                log(f"{s.name}: stopped tracking (the download itself carries on)")
+        for g in games:
+            if g["launcher"] != "steam":
+                continue
+            appid = g["appid"]
+            active = self.live.get(appid, {}).get("active")
+            if not active:
+                self.track_off.discard(appid)
+            wanted = (appid, True) in tracks or (active and settings["auto_track"] and appid not in self.track_off
+                                                 and self._steam_up())
+            if wanted and appid not in self.sessions:
+                self._begin(g, f"track|{appid}|{now.isoformat()}", True, None, tracked=True)
 
         if not settings["paused"]:
             handled = self.state["handled"]
@@ -1972,10 +2048,14 @@ class Engine(threading.Thread):
                     log(f"Could not set the wake timer: {res}")
 
     # ---- sessions
-    def _begin(self, game: dict[str, Any], key: str, manual: bool, end: Optional[datetime]) -> None:
-        s = Session(game, key, manual, end)
+    def _begin(self, game: dict[str, Any], key: str, manual: bool, end: Optional[datetime], tracked: bool = False) -> None:
+        s = Session(game, key, manual, end, tracked)
         self.sessions[s.appid] = s
-        if manual:
+        if tracked:
+            s.phase = "downloading"
+            s.dl_started = s.last_change = time.time()
+            log(f"{s.name}: tracking the download")
+        elif manual:
             log(f"{s.name}: manual check started")
         else:
             log(f"{s.name}: update window open (until {end:%H:%M} SAST)")
@@ -2098,10 +2178,19 @@ class Engine(threading.Thread):
     def _downloading(self, s: Session, m: dict[str, Any], settings: dict[str, Any], steam: Path) -> None:
         t = time.time()
         if not self._steam_up():
-            if t - s.launch_time > 60:
+            if s.tracked:
+                self._finish(s, "skipped", "Steam was closed")
+            elif t - s.launch_time > 60:
                 log(f"{s.name}: Steam is no longer running - restarting it")
                 s.phase = "launching"
             return
+        live = self.live.get(s.appid, {})
+        live_active = bool(live.get("active"))
+        if s.tracked and not s.initial_build:
+            s.initial_build = m["buildid"]
+        if live_active:
+            s.live_seen = t
+            s.last_change = t
         sig = (m["state"], m["buildid"], m["target"], m["dl"], m["staged"])
         if sig != s.sig:
             s.sig = sig
@@ -2111,14 +2200,20 @@ class Engine(threading.Thread):
             s.saw_activity = True
         total = m["to_dl"] + m["to_stage"]
         done = m["dl"] + m["staged"]
-        if busy and total > 0:
+        if live_active and live.get("total"):
+            s.saw_activity = True
+            s.bytes_total, s.bytes_done = live["total"], int(live["dl"])
+            s.progress = s.bytes_done / s.bytes_total
+            s.speed = live["speed"]
+        elif busy and total > 0:
             s.bytes_total, s.bytes_done = total, done
             s.progress = max(0.0, min(1.0, done / total))
-        if s.prev_t == 0:
-            s.prev_t, s.prev_dl = t, m["dl"]
-        elif t - s.prev_t >= 3:
-            s.speed = max(0.0, (m["dl"] - s.prev_dl) / (t - s.prev_t))
-            s.prev_t, s.prev_dl = t, m["dl"]
+        if not live_active:
+            if s.prev_t == 0:
+                s.prev_t, s.prev_dl = t, m["dl"]
+            elif t - s.prev_t >= 3:
+                s.speed = max(0.0, (m["dl"] - s.prev_dl) / (t - s.prev_t))
+                s.prev_t, s.prev_dl = t, m["dl"]
         if (m["state"] & FLAG_RUNNING or running_app_id() == s.appid) and not s.hinted_running:
             s.hinted_running = True
             log(f"{s.name}: the game is running - Steam updates it after it closes")
@@ -2127,9 +2222,13 @@ class Engine(threading.Thread):
             log(f"{s.name}: Steam has the update paused")
 
         target = s.remote["build"] if s.remote else None
-        if manifest_idle(m) and (s.saw_activity or (target and m["buildid"] == target)):
+        if manifest_idle(m) and (s.saw_activity or (target and m["buildid"] == target)) and not (s.tracked and live_active):
             s.progress = 1.0
             self._finish(s, "updated", f"now on build {m['buildid']}")
+            return
+        if s.tracked and t - s.live_seen > 60:
+            self._finish(s, "skipped", "the download was paused or stopped in Steam" if s.saw_activity
+                         else "nothing is downloading")
             return
         waited = t - s.dl_started
         if not s.saw_activity:
@@ -2440,6 +2539,7 @@ class Engine(threading.Thread):
         emit("status", rows)
 
         active = [s for s in self.sessions.values() if s.phase != "done"]
+        emit("live", [self._live_item(s, rows) for s in active])
         note = power_note(settings)
         wu = self.warmup
         if not active and wu is not None:
@@ -2472,7 +2572,8 @@ class Engine(threading.Thread):
             else:
                 detail, prog = "Watching for the update...", None
             emit("progress", {"state": "active", "appid": s.appid, "game": s.name, "phase": s.phase, "launcher": s.lc.name,
-                              "progress": prog, "detail": detail, "note": note, "count": len(active)})
+                              "progress": prog, "detail": detail, "note": note, "count": len(active),
+                              "tracked": s.tracked})
         elif finished_now:
             s = finished_now[-1]
             label = {"updated": "UPDATE COMPLETE", "up-to-date": "UP TO DATE", "failed": "UPDATE FAILED",
@@ -2482,6 +2583,18 @@ class Engine(threading.Thread):
                               "detail": s.msg, "note": note})
         else:
             emit("progress", {"state": "idle"})
+
+    def _live_item(self, s: Session, rows: dict[int, dict[str, Any]]) -> dict[str, Any]:
+        """One card in the main window's live panel."""
+        known = s.saw_activity and s.bytes_total > 0
+        parts = [f"{fmt_bytes(s.bytes_done)} of {fmt_bytes(s.bytes_total)}"] if known else []
+        if s.speed > 0:
+            parts.append(f"{fmt_bytes(s.speed)}/s")
+            if known:
+                mins = max(1, int((s.bytes_total - s.bytes_done) / s.speed / 60))
+                parts.append(f"about {mins // 60} h {mins % 60} min left" if mins >= 60 else f"about {mins} min left")
+        return {"appid": s.appid, "name": s.name, "tracked": s.tracked, "progress": s.progress if known else None,
+                "status": rows.get(s.appid, {}).get("status", ""), "detail": "  ·  ".join(parts)}
 
 
 # --------------------------------------------------------------------------- web UI plumbing
@@ -2739,6 +2852,11 @@ class Api:
         return self._ctl.check_now(appid)
 
     @_api
+    def track(self, appid: int, on: bool) -> dict[str, Any]:
+        self._ctl.engine.set_tracking(int(appid), bool(on))
+        return {"ok": True}
+
+    @_api
     def preview(self, appid: int) -> dict[str, Any]:
         return self._ctl.preview(int(appid))
 
@@ -2958,6 +3076,7 @@ class Controller:
         self._hide_timer: Optional[threading.Timer] = None
         BUS.on("status", self.on_status)
         BUS.on("log", lambda line: self.push("log", line))
+        BUS.on("live", lambda items: self.push("live", items))
         BUS.on("progress", self.on_progress)
         BUS.on("countdown", self.on_countdown)
         BUS.on("notify", self.on_notify)
@@ -2989,10 +3108,11 @@ class Controller:
             pass
         self.push("state", self.state())
 
-    def quit(self) -> None:
+    def quit(self, why: str) -> None:
         if self.quitting:
             return
         self.quitting = True
+        log(f"Gaus is closing: {why}")
         self.stop_evt.set()
         try:
             self.engine.stop()
@@ -3063,7 +3183,7 @@ class Controller:
                     "installed": str(st.get("local_build") or "not installed") if precise else "-",
                     "latest": str(st.get("remote_build") or "-") if precise else "-",
                     "patched": upd_txt if precise else "-", "next": nxt_txt,
-                    "photos": self.photos.count(g["appid"]), "status": status})
+                    "precise": precise, "photos": self.photos.count(g["appid"]), "status": status})
         return out
 
     def on_status(self, rows: dict) -> None:
@@ -3428,7 +3548,11 @@ class Controller:
             self.after_accounts_changed()
             log(f"App update available: version {info['version']}")
             if first:
-                self.on_notify("Update available", f"Version {info['version']} is ready to install.")
+                auto = self.cfg.settings["auto_install_updates"] and is_frozen()
+                self.on_notify("Gaus update available",
+                               f"Version {info['version']} is out. " +
+                               ("It installs by itself when nothing is downloading." if auto
+                                else "Open Gaus to install it."))
             if manual:
                 self.show_window()
             self._auto_install_tick()
@@ -3496,7 +3620,7 @@ class Controller:
             relaunch_self()
         except OSError as exc:
             log(f"Could not restart automatically: {exc}")
-        self.quit()
+        self.quit("restarting to install an update")
 
     def background_loop(self) -> None:
         """Replaces the old timers: look for app updates now and then, and install quietly when idle."""
@@ -3547,7 +3671,7 @@ class Controller:
         if self.preview_active:
             return
         state = p.get("state")
-        if state == "active" and p.get("phase") in ("launching", "downloading", "warmup"):
+        if state == "active" and not p.get("tracked") and p.get("phase") in ("launching", "downloading", "warmup"):
             self._stop_hide()
             self._prepare_screen(p["appid"], p["game"])
             label = (f"STARTING {str(p.get('launcher') or 'LAUNCHER').upper()}" if p["phase"] == "launching"
@@ -3653,7 +3777,7 @@ class Controller:
             item("Pause scheduling", lambda _i, _it: self.set_paused(not self.cfg.settings["paused"]),
                  checked=lambda _it: bool(self.cfg.settings["paused"])),
             pystray.Menu.SEPARATOR,
-            item("Quit", lambda _i, _it: self.quit()))
+            item("Quit", lambda _i, _it: self.quit("Quit was chosen in the tray")))
         self.tray = pystray.Icon("Gaus", img, APP_TITLE, menu)
 
     def _tray_switch(self, aid: str) -> None:
@@ -3710,7 +3834,7 @@ def main() -> int:
         splash = ctl.new_window("splash.html", width=456, height=scaled + 112, frameless=True, on_top=True,
                                 resizable=False, easy_drag=False, background_color="#f6f4f0")
     ctl.main = ctl.new_window("index.html", title=f"{APP_TITLE}  v{APP_VERSION}", width=1180, height=780,
-                              min_size=(940, 620), hidden=True, background_color="#f6f4f0")
+                              min_size=(940, 620), hidden=True, background_color="#0d1530")
 
     def on_closing() -> bool:
         if ctl.quitting:
@@ -3736,6 +3860,8 @@ def main() -> int:
             def ready(icon: Any) -> None:
                 icon.visible = True
                 log("Tray icon is visible (look for it in the taskbar's hidden-icons area)")
+                if "--after-update" in sys.argv:
+                    ctl.on_notify("Gaus updated", f"You are now on version {APP_VERSION}.")
             ctl.tray.run(ready)
         except Exception:
             log("The tray icon could not start:\n" + traceback.format_exc())
@@ -3758,7 +3884,7 @@ def main() -> int:
         log(f"The window could not start: {exc!r}\n{traceback.format_exc()}")
         message_box("The Gaus window could not start. It needs Microsoft Edge WebView2 (it is included with "
                     f"Windows 11 and Microsoft Edge).\n\n{exc}")
-    ctl.quit()
+    ctl.quit("the app window closed")
     engine.stop()
     lock.release()
     return 0

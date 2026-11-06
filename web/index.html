@@ -36,6 +36,7 @@
     </nav>
 
     <section class="panel show" id="p-games" role="tabpanel" aria-labelledby="tab-games">
+      <div class="live" id="live" aria-label="Live downloads" hidden></div>
       <div class="bar-row">
         <span class="label" id="lc-label">Launcher</span>
         <div class="chips" id="launchers" role="radiogroup" aria-labelledby="lc-label"></div>
@@ -46,17 +47,17 @@
       <div class="bar-row">
         <button class="btn primary" id="g-add" type="button">+ Add game</button>
         <span class="sep" aria-hidden="true"></span>
-        <button class="btn sm" id="g-edit" type="button">Schedule &amp; photos</button>
+        <button class="btn sm cobalt" id="g-track" type="button">Track download</button>
         <button class="btn sm" id="g-check" type="button">Check now</button>
-        <button class="btn sm" id="g-preview" type="button">Preview slideshow</button>
-        <button class="btn sm" id="g-photos" type="button">Refresh photos</button>
+        <button class="btn sm" id="g-edit" type="button">Schedule &amp; photos</button>
+        <button class="btn sm ghost" id="g-preview" type="button">Preview slideshow</button>
+        <button class="btn sm ghost" id="g-photos" type="button">Refresh photos</button>
         <button class="btn sm ghost danger" id="g-del" type="button">Remove</button>
       </div>
       <div class="tablewrap" id="tablewrap">
         <table aria-label="Games">
           <thead><tr>
-            <th>Game</th><th>Launcher</th><th>Installed build</th><th>Latest build</th>
-            <th>Last patched (SAST)</th><th>Next window (SAST)</th><th>Photos</th><th>Status</th>
+            <th>Game</th><th>Build</th><th>Last patched</th><th>Next window</th><th>Status</th>
           </tr></thead>
           <tbody id="rows"></tbody>
         </table>
