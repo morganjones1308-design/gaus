@@ -14,6 +14,7 @@
     <nav class="tabs" role="tablist" aria-label="Sections" aria-orientation="vertical">
       <button role="tab" id="tab-games" aria-selected="true" aria-controls="p-games" type="button">Library</button>
       <button role="tab" id="tab-downloads" aria-selected="false" aria-controls="p-downloads" type="button">Downloads<span class="count" id="dl-count" hidden></span></button>
+      <button role="tab" id="tab-heroes" aria-selected="false" aria-controls="p-heroes" type="button" hidden>Rivals stats</button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="p-settings" type="button">Settings</button>
       <button role="tab" id="tab-log" aria-selected="false" aria-controls="p-log" type="button">Log</button>
       <button role="tab" id="tab-guide" aria-selected="false" aria-controls="p-guide" type="button">Guide</button>
@@ -84,6 +85,15 @@
       <section class="panel" id="p-downloads" role="tabpanel" aria-labelledby="tab-downloads">
         <div class="page-head"><h2>Downloads</h2><p id="dl-sub"></p></div>
         <div class="downloads" id="live"></div>
+      </section>
+
+      <section class="panel" id="p-heroes" role="tabpanel" aria-labelledby="tab-heroes">
+        <div class="page-head"><h2>Rivals stats</h2><p>The official Marvel Rivals pages, live from NetEase, in their own window.</p></div>
+        <div class="official">
+          <article><h3>Hero stats</h3><p>Pick rate and win rate for every hero. Filter by rank, platform, game mode and role. The page shows when the numbers were last updated.</p><button class="btn primary" type="button" data-official="stats">Open hero stats</button></article>
+          <article><h3>Team-ups</h3><p>Every current team-up, with the heroes in it and what it does.</p><button class="btn" type="button" data-official="teamups">Open team-ups</button></article>
+          <p class="hint">Marvel Rivals' terms don't allow apps to copy these pages, so Gaus shows you NetEase's own site instead of its own copy of the numbers. For what changed in each update, including team-ups, use the Latest patch pill in your Library.</p>
+        </div>
       </section>
 
       <section class="panel" id="p-settings" role="tabpanel" aria-labelledby="tab-settings">

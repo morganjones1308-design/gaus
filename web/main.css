@@ -125,6 +125,14 @@ main { flex: 1; min-height: 0; }
 .guide ol, .guide ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; }
 .guide b { color: var(--ink); font-weight: 600; }
 
+/* official pages */
+.official { padding: 2px 28px 24px; display: grid; gap: 24px; max-width: 760px; overflow: auto; }
+.official article { display: grid; gap: 6px; justify-items: start; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.official h3 { font-size: 18px; color: var(--lemon); }
+.official p { margin: 0 0 8px; color: var(--ink-2); }
+.official .hint { margin: 0; color: var(--muted); line-height: 1.6; }
+.team-tag { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 3px; background: var(--cobalt); color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+
 /* patch notes */
 .notes { display: grid; gap: 16px; }
 .notes article { display: grid; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }

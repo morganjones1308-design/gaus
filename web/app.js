@@ -84,6 +84,7 @@ function setState(st) {
   document.title = `${S.app.title} v${S.app.version}`;
   $("#version").textContent = `Version ${S.app.version}`;
   renderAccounts(); renderLaunchers(); renderRows(true); renderBanner(); renderManage(); maybeTour();
+  $("#tab-heroes").hidden = !rows.some((r) => r.appid === 2767030);    // only for people who have Marvel Rivals
   if (st.prompt) window.Gaus.saverPrompt(st.prompt);
 }
 function activeAccount() { return S.accounts.find((a) => a.id === S.active); }
@@ -234,6 +235,9 @@ async function setTracking(appid, name, on) {
 }
 $("#dock").onclick = () => showTab("downloads");
 
+/* ---------- official pages ---------- */
+$$("[data-official]").forEach((b) => { b.onclick = async () => { const r = await api.open_official(b.dataset.official); if (r.error) toast(r.error, true); }; });
+
 /* ---------- patch notes ---------- */
 const latestPatch = {};      // asked for once per game while the page is open
 async function drawPatchPill(r) {
@@ -259,7 +263,7 @@ $("#g-notes").onclick = async (e) => {
         el("div", { class: "hero-tile", style: h.image ? `background-image:url("${h.image}")` : null }, h.image ? null : h.name.split(/[\s-]+/).filter((w) => w !== "The" && w !== "the").slice(0, 2).map((w) => w[0]).join(""),
           h.fixed ? el("span", { class: "hero-cog", title: "Bug fixed", "aria-label": "Bug fixed", role: "img" }, "⚙") : null),
         el("div", {}, el("h4", {}, h.name, h.verdict ? el("span", { class: "pill " + h.verdict }, { buff: "Buffed", nerf: "Nerfed", mixed: "Mixed" }[h.verdict]) : null),
-          el("ul", { class: "changes" }, h.changes.map((c) => el("li", { class: c.kind }, c.kind === "fix" ? el("b", {}, "Fixed: ") : null, c.text))), h.more ? el("small", {}, `and ${h.more} more`) : null)))) : null,
+          el("ul", { class: "changes" }, h.changes.map((c) => el("li", { class: c.kind }, c.team ? el("span", { class: "team-tag" }, `Team-Up: ${c.team}`) : null, c.kind === "fix" ? el("b", {}, "Fixed: ") : null, c.text))), h.more ? el("small", {}, `and ${h.more} more`) : null)))) : null,
       n.sections.map((s) => el("section", {}, s.heading ? el("h4", {}, s.heading) : null,
         el("ul", {}, s.items.map((i) => el("li", {}, i))), s.more ? el("small", {}, `and ${s.more} more`) : null)),
       el("button", { type: "button", onclick: () => openNews(n.url) }, "Read the full notes"))));
@@ -631,7 +635,7 @@ async function drawStats() {
 
 /* ---------- tabs ---------- */
 function showTab(name) {
-  ["games", "downloads", "settings", "log", "guide", "stats"].forEach((n) => {
+  ["games", "downloads", "heroes", "settings", "log", "guide", "stats"].forEach((n) => {
     $("#tab-" + n).setAttribute("aria-selected", String(n === name));
     $("#p-" + n).classList.toggle("show", n === name);
   });

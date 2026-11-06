@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.17"
+APP_VERSION = "1.18"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -91,6 +91,11 @@ ART_SEARCHES = {"google": "https://www.google.com/search?tbm=isch&q=", "pinteres
                 "deviantart": "https://www.deviantart.com/search?q=", "artstation": "https://www.artstation.com/search?sort_by=relevance&query="}
 MAX_PICTURE_BYTES = 30 * 1024 * 1024
 NEWS_PAGES = {2767030: "https://www.marvelrivals.com/news/"}    # a game's own news site, opened in the browser
+# The publisher's own pages, shown as they are in a window. Their terms rule out scraping them or copying their art.
+OFFICIAL_PAGES = {"stats": ("Marvel Rivals: hero stats", "https://www.marvelrivals.com/heroes_data/"),
+                  "teamups": ("Marvel Rivals: team-ups", "https://www.marvelrivals.com/heroes/teamup.html")}
+_TEAM_UP_WITH = re.compile(r"team-up with ([A-Z][\w'&.\- ]*?)(?=,|\.|:|;| and |$)", re.I)
+_TEAM_UP_TITLE = re.compile(r"^(.{3,50}?)\s*\(\s*([^()/\-]+?)\s*-\s*[^()]+\)$")
 _PATCH_NOTES = re.compile(r"patch notes|balance post|balance adjust|extra balance|hotfix", re.I)
 _PATCH_WORDS = re.compile(r"patch|update|hotfix|balance|version|bug fix|maintenance|season", re.I)
 # Names to pick from in the favourite character list. Anyone can also type a name, so new heroes work too.
@@ -1342,17 +1347,21 @@ def heroes_in_post(contents: str, roster: list[str], max_heroes: int = 30, per_h
     headings = {n.lower(): n for n in roster} | {a.lower(): n for n, a in other_names.items()}
     marked = re.sub(r"\[h[1-3]\](.*?)\[/h[1-3]\]", lambda m: "\n#" + _plain_text(m[1]) + "\n", contents, flags=re.S)
     found: dict[str, list[dict[str, str]]] = {}
-    current = ""
+    current = team = ""
     for line in _LINE_TAGS.sub("\n", marked).splitlines():
         is_heading = line.startswith("#")
         point = _plain_text(line[1:] if is_heading else line).lstrip("-•* ")
         if not point:
             continue
         if point.lower() in headings:
-            current = headings[point.lower()]
+            current, team = headings[point.lower()], ""
+            continue
+        title = _TEAM_UP_TITLE.match(point)      # "Team Name (Hero - Partner/Partner)" starts a team-up's changes
+        if title and title[2].lower() in headings:
+            current, team = headings[title[2].lower()], title[1]
             continue
         if is_heading:
-            current = ""
+            current = team = ""
             continue
         kind = classify_change(point)
         owner = current
@@ -1367,7 +1376,9 @@ def heroes_in_post(contents: str, roster: list[str], max_heroes: int = 30, per_h
         if not owner:
             continue
         text = point.split(": ", 1)[1] if kind == "fix" and ": " in point else point
-        found.setdefault(owner, []).append({"text": text if len(text) <= line_chars else text[:line_chars].rsplit(" ", 1)[0] + "…", "kind": kind})
+        partner = _TEAM_UP_WITH.search(point)
+        found.setdefault(owner, []).append({"text": text if len(text) <= line_chars else text[:line_chars].rsplit(" ", 1)[0] + "…", "kind": kind,
+                                            "team": partner[1].strip() if partner else team})
     heroes = []
     for name, changes in list(found.items())[:max_heroes]:
         kinds = {c["kind"] for c in changes}
@@ -3263,6 +3274,10 @@ class Api:
         return self._ctl.remove_favourite_image(int(appid), str(file))
 
     @_api
+    def open_official(self, kind: str) -> dict[str, Any]:
+        return self._ctl.open_official(str(kind))
+
+    @_api
     def latest_patch(self, appid: int) -> dict[str, str]:
         try:
             return fetch_latest_patch(int(appid))
@@ -3526,6 +3541,7 @@ class Controller:
         self.saver_on = False
         self._covers: dict[int, str] = {}
         self._news_links: set[str] = set()
+        self._official: dict[str, Any] = {}
         self.saver_asked: set[int] = set()
         # just restarted for an app update: don't offer or show anything for a download already under way
         self.no_prompt_until = time.time() + 90 if "--after-update" in sys.argv else 0.0
@@ -4335,6 +4351,21 @@ class Controller:
                 log(f"Could not get patch notes for game {appid}: {exc!r}")
                 out["error"] = "Couldn't get the patch notes. Check your internet connection and try again."
         return out
+
+    def open_official(self, kind: str) -> dict[str, Any]:
+        """Shows the publisher's page in its own window, with no access to Gaus's functions. Closing it frees its memory."""
+        if kind not in OFFICIAL_PAGES or webview is None:
+            return {"error": "That page isn't available."}
+        win = self._official.get(kind)
+        if win is not None:
+            win.restore()
+            win.show()
+            return {"ok": True}
+        title, url = OFFICIAL_PAGES[kind]
+        win = webview.create_window(title, url=url, width=1280, height=840, background_color="#0f1422")
+        self._official[kind] = win
+        win.events.closed += lambda: self._official.pop(kind, None)
+        return {"ok": True}
 
     def open_news(self, url: str) -> dict[str, Any]:
         if url not in self._news_links:     # only links the patch notes list just gave us
