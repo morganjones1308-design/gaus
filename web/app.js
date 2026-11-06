@@ -84,7 +84,6 @@ function setState(st) {
   document.title = `${S.app.title} v${S.app.version}`;
   $("#version").textContent = `Version ${S.app.version}`;
   renderAccounts(); renderLaunchers(); renderRows(true); renderBanner(); renderManage(); maybeTour();
-  $("#tab-heroes").hidden = !rows.some((r) => r.appid === 2767030);    // only for people who have Marvel Rivals
   if (st.prompt) window.Gaus.saverPrompt(st.prompt);
 }
 function activeAccount() { return S.accounts.find((a) => a.id === S.active); }
@@ -162,6 +161,7 @@ function renderGamePage() {
   $("#gp-name").textContent = r.name;
   $("#g-fav").textContent = r.favourite ? `Favourite: ${r.favourite}` : "Choose favourite";
   drawPatchPill(r);
+  $$("[data-official]").forEach((b) => { b.hidden = r.appid !== 2767030; });    // the official pages are Marvel Rivals' own
   const art = r.cover ? `url("${r.cover}")` : "none";
   if ($("#hero").dataset.art !== art) { $("#hero").dataset.art = art; $("#hero").style.backgroundImage = art; }
   $("#gp-status").textContent = r.status; $("#gp-status").className = statusClass(r.status) === "bad" ? "newer" : "";
@@ -603,12 +603,8 @@ async function editGame() {
   const d = await api.game_detail(r.lid, r.appid); if (d.error) return toast(d.error, true);
   gmRow = r; $("#gm-title").textContent = `${d.name} – schedule and photos`;
   $("#gm-enabled").checked = d.enabled; $("#gm-weekly").value = d.weekly; $("#gm-dates").value = d.dates; $("#gm-kw").value = d.keywords;
-  $("#gm-wu").checked = !!d.warmup; $("#gm-wu-quiet").value = d.warmup_quiet; $("#gm-wu-max").value = d.warmup_max;
-  $("#gm-wu-box").hidden = !d.steam; syncWarmup();
   $("#gm-err").textContent = ""; gmDlg.showModal(); $("#gm-weekly").focus();
 }
-function syncWarmup() { const on = $("#gm-wu").checked; $("#gm-wu-quiet").disabled = !on; $("#gm-wu-max").disabled = !on; $("#gm-wu-opts").style.opacity = on ? "1" : ".5"; }
-$("#gm-wu").addEventListener("change", syncWarmup);
 $("#g-edit").onclick = editGame;
 $("#gm-images").onclick = (e) => busy(e.currentTarget, async () => {
   const r = await api.add_images(gmRow.lid, gmRow.appid);
@@ -617,8 +613,7 @@ $("#gm-images").onclick = (e) => busy(e.currentTarget, async () => {
 $("#dlg-game form").addEventListener("submit", async (e) => {
   e.preventDefault();
   await busy($("#gm-ok"), async () => {
-    const res = await api.save_game(gmRow.lid, gmRow.appid, $("#gm-enabled").checked, $("#gm-weekly").value, $("#gm-dates").value, $("#gm-kw").value,
-      $("#gm-wu").checked, parseInt($("#gm-wu-max").value, 10) || 45, parseInt($("#gm-wu-quiet").value, 10) || 3);
+    const res = await api.save_game(gmRow.lid, gmRow.appid, $("#gm-enabled").checked, $("#gm-weekly").value, $("#gm-dates").value, $("#gm-kw").value);
     if (res && res.error) { $("#gm-err").textContent = res.error; return; }
     if (apply(res)) { gmDlg.close(); toast("Schedule saved"); }
   });
@@ -658,7 +653,7 @@ async function drawStats() {
 
 /* ---------- tabs ---------- */
 function showTab(name) {
-  ["games", "downloads", "heroes", "settings", "log", "guide", "stats"].forEach((n) => {
+  ["games", "downloads", "settings", "log", "guide", "stats"].forEach((n) => {
     $("#tab-" + n).setAttribute("aria-selected", String(n === name));
     $("#p-" + n).classList.toggle("show", n === name);
   });

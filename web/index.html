@@ -14,7 +14,6 @@
     <nav class="tabs" role="tablist" aria-label="Sections" aria-orientation="vertical">
       <button role="tab" id="tab-games" aria-selected="true" aria-controls="p-games" type="button">Library</button>
       <button role="tab" id="tab-downloads" aria-selected="false" aria-controls="p-downloads" type="button">Downloads<span class="count" id="dl-count" hidden></span></button>
-      <button role="tab" id="tab-heroes" aria-selected="false" aria-controls="p-heroes" type="button" hidden>Rivals stats</button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="p-settings" type="button">Settings</button>
       <button role="tab" id="tab-log" aria-selected="false" aria-controls="p-log" type="button">Log</button>
       <button role="tab" id="tab-guide" aria-selected="false" aria-controls="p-guide" type="button">Guide</button>
@@ -50,7 +49,7 @@
           <div class="detail" id="detail">
             <div class="empty" id="empty" hidden></div>
             <div id="game-page" hidden>
-              <div class="hero" id="hero"><h2 id="gp-name"></h2><button class="patch-pill" id="g-notes" type="button" hidden>Patch notes</button></div>
+              <div class="hero" id="hero"><h2 id="gp-name"></h2><div class="hero-pills"><button class="patch-pill" id="g-notes" type="button" hidden>Patch notes</button><button class="patch-pill" type="button" data-official="stats" title="Pick and win rates by rank, on the official site" hidden>Hero stats</button><button class="patch-pill" type="button" data-official="teamups" title="Current team-ups, on the official site" hidden>Team-ups</button></div></div>
               <div class="actions">
                 <button class="btn primary" id="g-check" type="button">Check for update</button>
                 <button class="btn" id="g-track" type="button">Track download</button>
@@ -85,15 +84,6 @@
       <section class="panel" id="p-downloads" role="tabpanel" aria-labelledby="tab-downloads">
         <div class="page-head"><h2>Downloads</h2><p id="dl-sub"></p></div>
         <div class="downloads" id="live"></div>
-      </section>
-
-      <section class="panel" id="p-heroes" role="tabpanel" aria-labelledby="tab-heroes">
-        <div class="page-head"><h2>Rivals stats</h2><p>The official Marvel Rivals pages, live from NetEase, in their own window.</p></div>
-        <div class="official">
-          <article><h3>Hero stats</h3><p>Pick rate and win rate for every hero. Filter by rank, platform, game mode and role. The page shows when the numbers were last updated.</p><button class="btn primary" type="button" data-official="stats">Open hero stats</button></article>
-          <article><h3>Team-ups</h3><p>Every current team-up, with the heroes in it and what it does.</p><button class="btn" type="button" data-official="teamups">Open team-ups</button></article>
-          <p class="hint">Marvel Rivals' terms don't allow apps to copy these pages, so Gaus shows you NetEase's own site instead of its own copy of the numbers. For what changed in each update, including team-ups, use the Latest patch pill in your Library.</p>
-        </div>
       </section>
 
       <section class="panel" id="p-settings" role="tabpanel" aria-labelledby="tab-settings">
@@ -146,7 +136,7 @@
             <p>While a download runs, show its art full screen with the progress, darken the screen, and dim or black out your other monitors. Your launcher is minimized and keeps downloading. Click or press Esc to leave. The monitors stay powered, and Gaus can't change your room lights.</p>
             <p>To use your own pictures, go to <b>Settings › Screen saver</b> and choose <b>My pictures</b>. Gaus art is the default.</p></article>
           <article><h3>Patch notes</h3>
-            <p>Select a game and click the <b>Latest patch</b> pill on its art to see the highlights of its latest updates, newest first, with a link to read each one in full. For Marvel Rivals, changes are also grouped by character, using your own picture of them if you've added one. Click a character's tile to add one. Each gets a Buffed, Nerfed or Mixed badge, and a cog means a bug was fixed. Gaus works these out from the wording, so if a badge looks wrong, the full notes have the final say. They come from Steam, so other launchers' games don't have them yet.</p></article>
+            <p>Select a game and click the <b>Latest patch</b> pill on its art to see the highlights of its latest updates, newest first, with a link to read each one in full. For Marvel Rivals, changes are also grouped by character, using your own picture of them if you've added one. Click a character's tile to add one. Marvel Rivals also has <b>Hero stats</b> and <b>Team-ups</b> pills, which open the official pages with win and pick rates for each rank. Each gets a Buffed, Nerfed or Mixed badge, and a cog means a bug was fixed. Gaus works these out from the wording, so if a badge looks wrong, the full notes have the final say. They come from Steam, so other launchers' games don't have them yet.</p></article>
           <article><h3>Your favourite character</h3>
             <p>Select a game and choose <b>Choose favourite</b>. Pick a character and search for art with the site buttons. Drag a picture you like into the box, or copy it and press Ctrl+V. If a site asks you to sign in, use your own account in your browser first. Pictures become the game's art and screen saver. With no favourite, the official art changes each time Gaus starts.</p></article>
           <article><h3>Powering down</h3>
@@ -223,13 +213,6 @@
         <span class="hint">For example <b>Thu 11:00</b> or <b>Daily 11:00</b></span></div>
       <div class="field"><label for="gm-dates">One-off dates, one per line</label><textarea class="input" id="gm-dates" rows="3" placeholder="2026-11-13 11:00"></textarea>
         <span class="hint">For big updates from the roadmap, like <b>2026-11-13 11:00</b></span></div>
-      <div class="field" id="gm-wu-box">
-        <label class="switch"><input type="checkbox" id="gm-wu"><span class="track" aria-hidden="true"></span><span>After an update, start the game once so its shaders compile</span></label>
-        <span class="hint">Steam games, and only when the PC is going to power down. Gaus starts the game, waits until it has stopped working hard, then closes it.</span>
-        <div class="row wrap" id="gm-wu-opts">
-          <label for="gm-wu-quiet" class="hint">Finished when quiet for</label><input class="input" id="gm-wu-quiet" type="number" min="1" max="20" style="width:76px"><span class="hint">min</span>
-          <label for="gm-wu-max" class="hint">Never longer than</label><input class="input" id="gm-wu-max" type="number" min="10" max="180" style="width:84px"><span class="hint">min</span>
-        </div></div>
       <div class="field"><label for="gm-kw">Loading-screen photo searches, one per line</label><textarea class="input" id="gm-kw" rows="3"></textarea>
         <span class="hint">Used only when no official game art is found. Steam games use their official screenshots first.</span></div>
       <div class="field"><label for="gm-images">Your own images</label>

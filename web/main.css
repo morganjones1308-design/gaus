@@ -46,7 +46,8 @@ main { flex: 1; min-height: 0; }
 
 .detail { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
 .hero { position: relative; flex: none; height: 240px; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 8px; padding: 22px 28px; background: var(--side) center 30% / cover no-repeat; }
-.patch-pill { position: relative; padding: 5px 13px; border: 1px solid var(--lemon); border-radius: 999px; background: oklch(14% .026 265 / .82); color: var(--lemon); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background-color .1s ease-out, color .1s ease-out; }
+.hero-pills { position: relative; display: flex; flex-wrap: wrap; gap: 8px; }
+.patch-pill { padding: 5px 13px; border: 1px solid var(--lemon); border-radius: 999px; background: oklch(14% .026 265 / .82); color: var(--lemon); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background-color .1s ease-out, color .1s ease-out; }
 .patch-pill:hover { background: var(--lemon); color: var(--on-lemon); }
 .hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, var(--paper) 2%, oklch(17% .028 265 / .55) 50%, oklch(17% .028 265 / .1)); }
 .hero h2 { position: relative; font-size: clamp(26px, 3.6vw, 40px); line-height: 1.15; text-shadow: 0 2px 14px oklch(10% .02 265 / .8); }
@@ -125,12 +126,6 @@ main { flex: 1; min-height: 0; }
 .guide ol, .guide ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; }
 .guide b { color: var(--ink); font-weight: 600; }
 
-/* official pages */
-.official { padding: 2px 28px 24px; display: grid; gap: 24px; max-width: 760px; overflow: auto; }
-.official article { display: grid; gap: 6px; justify-items: start; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
-.official h3 { font-size: 18px; color: var(--lemon); }
-.official p { margin: 0 0 8px; color: var(--ink-2); }
-.official .hint { margin: 0; color: var(--muted); line-height: 1.6; }
 .team-tag { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 3px; background: var(--cobalt); color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 
 /* patch notes */
