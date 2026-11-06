@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.18"
+APP_VERSION = "1.19"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -897,6 +897,7 @@ class MonitorDimmer:
         u.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         u.EnumDisplayMonitors.argtypes = [wintypes.HDC, ctypes.c_void_p, monitorproc, wintypes.LPARAM]
         u.DestroyWindow.argtypes = [wintypes.HWND]
+        u.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
         g.GetStockObject.restype = wintypes.HGDIOBJ
         k.GetModuleHandleW.restype = wintypes.HMODULE
         k.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
