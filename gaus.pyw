@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.13"
+APP_VERSION = "1.14"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -3300,6 +3300,7 @@ class Controller:
         self.screen = LoadingScreen(self)
         self.dimmer = MonitorDimmer()
         self.saver_on = False
+        self._covers: dict[int, str] = {}
         self.saver_asked: set[int] = set()
         # just restarted for an app update: don't offer or show anything for a download already under way
         self.no_prompt_until = time.time() + 90 if "--after-update" in sys.argv else 0.0
@@ -3317,7 +3318,7 @@ class Controller:
         BUS.on("progress", self.on_progress)
         BUS.on("countdown", self.on_countdown)
         BUS.on("notify", self.on_notify)
-        BUS.on("photos_changed", lambda _a: self.push("rows", self.rows()))
+        BUS.on("photos_changed", lambda _a: (self._covers.clear(), self.push("rows", self.rows())))
 
     # ---- windows
     def new_window(self, page: str, **kw: Any) -> Any:
@@ -3519,13 +3520,18 @@ class Controller:
         return out
 
     def _cover(self, appid: int) -> str:
-        """The game's art for the library page: its first stored photo."""
-        for e in photo_entries(appid):
-            try:
-                return "/photos/" + urllib.parse.quote(Path(e["path"]).resolve().relative_to(PHOTO_DIR.resolve()).as_posix())
-            except (ValueError, OSError, KeyError):
-                continue
-        return ""
+        """The game's art for the library page: a new pick each launch, and the user's own pictures come first."""
+        if appid not in self._covers:
+            entries = photo_entries(appid)
+            own = [e for e in entries if e.get("source") == OWN_SRC]
+            random.shuffle(own or entries)
+            for e in own or entries:
+                try:
+                    self._covers[appid] = "/photos/" + urllib.parse.quote(Path(e["path"]).resolve().relative_to(PHOTO_DIR.resolve()).as_posix())
+                    break
+                except (ValueError, OSError, KeyError):
+                    continue
+        return self._covers.get(appid, "")
 
     def on_status(self, rows: dict) -> None:
         self.status = rows
@@ -3787,6 +3793,7 @@ class Controller:
         if added:
             log(f"Added {added} of your own image(s)")
             self.screen_appid = 0
+            self._covers.pop(appid, None)
             self.push("rows", self.rows())
         return {"added": added, "skipped": len(paths) - added}
 
