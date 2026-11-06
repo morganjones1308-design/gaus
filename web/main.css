@@ -123,6 +123,11 @@ main { flex: 1; min-height: 0; }
 .guide ol, .guide ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; }
 .guide b { color: var(--ink); font-weight: 600; }
 
+/* drop a picture from the browser */
+.drop { display: grid; gap: 3px; padding: 14px 16px; border: 1px dashed var(--faint); border-radius: var(--r); text-align: center; transition: background-color .1s ease-out, border-color .1s ease-out; }
+.drop span { color: var(--muted); font-size: 12.5px; }
+.drop.over { border-color: var(--lemon); background: var(--paper-3); }
+
 /* my screen saver pictures */
 .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; max-height: 260px; overflow: auto; }
 .thumbs:empty { display: none; }

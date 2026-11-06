@@ -136,7 +136,7 @@
             <p>While a download runs, show its art full screen with the progress, darken the screen, and dim or black out your other monitors. Your launcher is minimized and keeps downloading. Click or press Esc to leave. The monitors stay powered, and Gaus can't change your room lights.</p>
             <p>To use your own pictures, go to <b>Settings › Screen saver</b> and choose <b>My pictures</b>. Gaus art is the default.</p></article>
           <article><h3>Your favourite character</h3>
-            <p>Select a game and choose <b>Choose favourite</b>. Pick a character, use <b>Find art</b> to search the web, save what you like, then choose <b>Add pictures</b>. They become the game's art and screen saver. With no favourite, the official art changes each time Gaus starts.</p></article>
+            <p>Select a game and choose <b>Choose favourite</b>. Pick a character and search for art with the site buttons. Drag a picture you like into the box, or copy it and press Ctrl+V. If a site asks you to sign in, use your own account in your browser first. Pictures become the game's art and screen saver. With no favourite, the official art changes each time Gaus starts.</p></article>
           <article><h3>Powering down</h3>
             <p>Go to <b>Settings › When updates are done</b> to choose shut down, sleep or hibernate. Downloads you start yourself only count if you tick <b>Also after downloads I start myself</b>.</p>
             <p>Gaus waits until nobody has used the PC for a while, then counts down. Moving the mouse cancels it. If the PC stays in use, it stays on. Open programs are closed, so save your work.</p></article>
@@ -265,9 +265,19 @@
   <div class="d-head"><h2 id="fav-title">Favourite character</h2><p>Pictures of your favourite become this game's art and screen saver. With no favourite, the official art keeps changing.</p></div>
   <div class="d-body">
     <div class="field"><label for="fav-name">Character</label>
-      <div class="row"><input class="input grow" id="fav-name" list="fav-list" placeholder="Search or type a name" autocomplete="off" maxlength="60"><datalist id="fav-list"></datalist>
-        <button class="btn" id="fav-find" type="button">Find art</button></div>
-      <span class="hint">Find art opens a web search in your browser. Save the pictures you like, then add them here.</span></div>
+      <input class="input" id="fav-name" list="fav-list" placeholder="Search or type a name" autocomplete="off" maxlength="60"><datalist id="fav-list"></datalist></div>
+    <div class="field"><span class="hint">Find art in your browser</span>
+      <div class="row wrap">
+        <button class="btn sm" type="button" data-site="google">Google</button>
+        <button class="btn sm" type="button" data-site="pinterest">Pinterest</button>
+        <button class="btn sm" type="button" data-site="deviantart">DeviantArt</button>
+        <button class="btn sm" type="button" data-site="artstation">ArtStation</button>
+      </div></div>
+    <div class="drop" id="fav-drop">
+      <b>Drag a picture here from your browser</b>
+      <span>Or copy it and press Ctrl+V. You can paste a picture's link too.</span>
+      <span>Site asks you to sign in? Sign in with your own account in your browser, then drag or copy the picture.</span>
+    </div>
     <div class="thumbs" id="fav-pics"></div>
     <p class="hint" id="fav-empty" style="margin:0">No pictures yet. Use large ones, at least 640×360. They stay on this PC.</p>
   </div>

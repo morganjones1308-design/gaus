@@ -263,12 +263,48 @@ $("#g-fav").onclick = async () => {
   favDlg.showModal(); $("#fav-name").focus();
 };
 $("#fav-name").addEventListener("change", saveFavName);
-$("#fav-find").onclick = async () => {
+$$("#dlg-fav [data-site]").forEach((b) => { b.onclick = async () => {
   const d = await saveFavName();
   if (!d.name) return toast("Choose a character first.", true);
-  const r = await api.find_art(favAppid);
+  const r = await api.find_art(favAppid, b.dataset.site);
   if (r.error) toast(r.error, true); else toast("Search opened in your browser.");
-};
+}; });
+/* pictures dragged or pasted in from the browser */
+function favResult(r) {
+  if (r.images) drawFav(r);
+  if (r.error) toast(r.error, true);
+  else if (r.added) toast("Picture added");
+  else toast("Gaus skipped that one: it's too small, not a picture, or already added.", true);
+}
+const readAsDataUrl = (file) => new Promise((ok, bad) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = bad; f.readAsDataURL(file); });
+async function favAdd(files, url) {
+  const d = await saveFavName();
+  if (!d.name) return toast("Choose a character first.", true);
+  for (const file of files) favResult(await api.add_favourite_data(favAppid, await readAsDataUrl(file), file.name.replace(/\.[^.]+$/, "")));
+  if (!files.length && url) favResult(url.startsWith("data:image/") ? await api.add_favourite_data(favAppid, url, "") : await api.add_favourite_url(favAppid, url));
+}
+const isLink = (t) => /^https?:\/\/\S+$/i.test(t);
+function linkFrom(dt) {
+  const img = /<img[^>]+src=["']([^"']+)["']/i.exec(dt.getData("text/html") || "");
+  if (img) return img[1].replace(/&amp;/g, "&");
+  const list = (dt.getData("text/uri-list") || "").split(/\r?\n/).find((l) => l && !l.startsWith("#"));
+  return list || (isLink((dt.getData("text/plain") || "").trim()) ? dt.getData("text/plain").trim() : "");
+}
+favDlg.addEventListener("dragover", (e) => { e.preventDefault(); $("#fav-drop").classList.add("over"); });
+favDlg.addEventListener("dragleave", (e) => { if (e.target === favDlg) $("#fav-drop").classList.remove("over"); });
+favDlg.addEventListener("drop", (e) => {
+  e.preventDefault(); e.stopPropagation(); $("#fav-drop").classList.remove("over");
+  const dt = e.dataTransfer;   // only readable right now, so take what's needed before anything waits
+  favAdd(Array.from(dt.files).filter((f) => f.type.startsWith("image/")), linkFrom(dt));
+});
+favDlg.addEventListener("paste", (e) => {
+  const dt = e.clipboardData;
+  const files = Array.from(dt.files).filter((f) => f.type.startsWith("image/"));
+  const text = (dt.getData("text/plain") || "").trim();
+  if (!files.length && !isLink(text)) return;      // ordinary text, like a character's name
+  e.preventDefault(); favAdd(files, text);
+});
+["dragover", "drop"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));   // never navigate away to a dropped file
 $("#fav-add").onclick = (e) => busy(e.currentTarget, async () => {
   const d = await saveFavName();
   if (!d.name) return toast("Choose a character first.", true);

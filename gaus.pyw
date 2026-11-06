@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.15"
+APP_VERSION = "1.16"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -87,6 +87,9 @@ LOCK_PATH = APP_DIR / "app.lock"
 FAVOURITES_PATH = APP_DIR / "favourites.json"
 GENERIC_KEY = "_generic"
 SAVER_KEY = "_saver"            # the pictures the user chose for their own screen saver
+ART_SEARCHES = {"google": "https://www.google.com/search?tbm=isch&q=", "pinterest": "https://www.pinterest.com/search/pins/?q=",
+                "deviantart": "https://www.deviantart.com/search?q=", "artstation": "https://www.artstation.com/search?sort_by=relevance&query="}
+MAX_PICTURE_BYTES = 30 * 1024 * 1024
 # Names to pick from in the favourite character list. Anyone can also type a name, so new heroes work too.
 ROSTERS: dict[int, list[str]] = {2767030: [
     "Adam Warlock", "Angela", "Black Panther", "Black Widow", "Blade", "Captain America", "Cloak & Dagger", "Daredevil",
@@ -3110,8 +3113,16 @@ class Api:
         return self._ctl.remove_favourite_image(int(appid), str(file))
 
     @_api
-    def find_art(self, appid: int) -> dict[str, Any]:
-        return self._ctl.find_art(int(appid))
+    def find_art(self, appid: int, site: str) -> dict[str, Any]:
+        return self._ctl.find_art(int(appid), str(site))
+
+    @_api
+    def add_favourite_data(self, appid: int, data_url: str, title: str) -> dict[str, Any]:
+        return self._ctl.add_favourite_data(int(appid), str(data_url), str(title))
+
+    @_api
+    def add_favourite_url(self, appid: int, url: str) -> dict[str, Any]:
+        return self._ctl.add_favourite_url(int(appid), str(url))
 
     @_api
     def nerd_stats(self) -> dict[str, Any]:
@@ -3820,7 +3831,7 @@ class Controller:
             return {"added": 0}
         return self.import_images([Path(p) for p in res], appid)
 
-    def import_images(self, paths: list[Path], appid: Any) -> dict[str, Any]:
+    def import_images(self, paths: list[Path], appid: Any, title: str = "") -> dict[str, Any]:
         d = photo_dir(appid)
         d.mkdir(parents=True, exist_ok=True)
         index = load_index(appid)
@@ -3835,7 +3846,7 @@ class Controller:
             except OSError:
                 name = None
             if name:
-                index.append({"file": name, "title": p.stem[:80], "author": "You", "license": "Your own image",
+                index.append({"file": name, "title": (title or p.stem)[:80], "author": "You", "license": "Your own image",
                               "license_url": "", "page": page, "source": OWN_SRC})
                 have.add(page)
                 added += 1
@@ -4140,13 +4151,52 @@ class Controller:
         self._remove_own_image(favourite_key(appid, favourite_of(appid)), file)
         return self._favourite_changed(appid)
 
-    def find_art(self, appid: int) -> dict[str, Any]:
+    def find_art(self, appid: int, site: str) -> dict[str, Any]:
         game, name = self.cfg.get_game(appid), favourite_of(appid)
-        if game is None or not name:
+        if game is None or not name or site not in ART_SEARCHES:
             return {"error": "Choose a character first."}
-        query = urllib.parse.urlencode({"tbm": "isch", "q": f"{name} {game['name']} art"})
-        webbrowser.open(f"https://www.google.com/search?{query}")
+        webbrowser.open(ART_SEARCHES[site] + urllib.parse.quote_plus(f"{name} {game['name']} art"))
         return {"ok": True}
+
+    def _add_favourite_picture(self, appid: int, data: bytes, title: str) -> dict[str, Any]:
+        """A picture the player dragged or pasted in. It goes through the same checks as a file they pick."""
+        name = favourite_of(appid)
+        if not name:
+            return {"error": "Choose a character first."}
+        if len(data) > MAX_PICTURE_BYTES:
+            return {"error": "That picture is too large (the limit is 30 MB)."}
+        folder = APP_DIR / "incoming"
+        folder.mkdir(parents=True, exist_ok=True)
+        src = folder / hashlib.sha1(data).hexdigest()[:16]    # the same picture twice is noticed and skipped
+        src.write_bytes(data)
+        try:
+            key = favourite_key(appid, name)
+            res = self.import_images([src], key, title or name)
+            res["duplicate"] = not res.get("added") and any(e.get("page") == f"file:{src}" for e in load_index(key))
+        finally:
+            src.unlink(missing_ok=True)
+        return {**res, **self._favourite_changed(appid)}
+
+    def add_favourite_data(self, appid: int, data_url: str, title: str) -> dict[str, Any]:
+        try:
+            data = base64.b64decode(data_url.split(",", 1)[-1], validate=True)
+        except ValueError:
+            return {"error": "That didn't come through as a picture."}
+        return self._add_favourite_picture(appid, data, title)
+
+    def add_favourite_url(self, appid: int, url: str) -> dict[str, Any]:
+        """A plain public download, with no login. If a site protects the picture this fails, and the player
+        can drag or copy it from their own browser instead."""
+        help_text = ("Gaus couldn't get a picture from that link. If the site needs you to sign in, "
+                     "sign in with your browser, then drag the picture here or copy and paste it.")
+        if not url.lower().startswith(("https://", "http://")):
+            return {"error": help_text}
+        try:
+            data = http_get(url, timeout=30, max_bytes=MAX_PICTURE_BYTES)
+        except Exception:
+            return {"error": help_text}
+        res = self._add_favourite_picture(appid, data, Path(urllib.parse.urlsplit(url).path).stem[:80])
+        return {**res, "error": help_text} if res.get("skipped") and not res.get("added") and not res.get("duplicate") else res
 
     def start_saver(self, appid: int, dim: int, others: str, source: str, ask: bool) -> dict[str, Any]:
         game = self.cfg.get_game(appid)
