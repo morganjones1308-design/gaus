@@ -159,6 +159,7 @@ function renderGamePage() {
     return;
   }
   $("#gp-name").textContent = r.name;
+  $("#g-fav").textContent = r.favourite ? `Favourite: ${r.favourite}` : "Choose favourite";
   const art = r.cover ? `url("${r.cover}")` : "none";
   if ($("#hero").dataset.art !== art) { $("#hero").dataset.art = art; $("#hero").style.backgroundImage = art; }
   $("#gp-status").textContent = r.status; $("#gp-status").className = statusClass(r.status) === "bad" ? "newer" : "";
@@ -231,6 +232,53 @@ async function setTracking(appid, name, on) {
   toast(on ? `Tracking ${name}…` : `Stopped tracking ${name}. The download carries on.`);
 }
 $("#dock").onclick = () => showTab("downloads");
+
+/* ---------- favourite character ---------- */
+const favDlg = $("#dlg-fav"); wireDialog(favDlg);
+let favAppid = 0;
+function drawFav(d) {
+  if (document.activeElement !== $("#fav-name")) $("#fav-name").value = d.name;
+  const box = $("#fav-pics"); box.textContent = "";
+  d.images.forEach((p) => box.append(el("button", { class: "thumb", type: "button", title: `Remove ${p.title}`, "aria-label": `Remove ${p.title}`, style: `background-image:url("${p.url}")`,
+    onclick: async () => drawFav(await api.remove_favourite_image(favAppid, p.file)) })));
+  $("#fav-empty").hidden = !!d.images.length;
+  $("#fav-clear").hidden = !d.name;
+}
+async function saveFavName() {   // the name box is saved before anything that relies on it
+  const name = $("#fav-name").value.trim();
+  const d = await api.favourite(favAppid);
+  if (name === d.name) return d;
+  const saved = await api.set_favourite(favAppid, name);
+  drawFav(saved);
+  return saved;
+}
+$("#g-fav").onclick = async () => {
+  const r = selRow(); if (!r) return;
+  favAppid = r.appid;
+  const d = await api.favourite(favAppid);
+  $("#fav-title").textContent = `${r.name}: favourite character`;
+  const list = $("#fav-list"); list.textContent = "";
+  d.roster.forEach((n) => list.append(el("option", { value: n })));
+  $("#fav-name").value = d.name; drawFav(d);
+  favDlg.showModal(); $("#fav-name").focus();
+};
+$("#fav-name").addEventListener("change", saveFavName);
+$("#fav-find").onclick = async () => {
+  const d = await saveFavName();
+  if (!d.name) return toast("Choose a character first.", true);
+  const r = await api.find_art(favAppid);
+  if (r.error) toast(r.error, true); else toast("Search opened in your browser.");
+};
+$("#fav-add").onclick = (e) => busy(e.currentTarget, async () => {
+  const d = await saveFavName();
+  if (!d.name) return toast("Choose a character first.", true);
+  const r = await api.add_favourite_images(favAppid);
+  if (r.error) return toast(r.error, true);
+  if (r.skipped) toast(`${r.skipped} skipped: too small, not a picture, or already added.`, true);
+  drawFav(r);
+});
+$("#fav-clear").onclick = async () => { $("#fav-name").value = ""; drawFav(await api.set_favourite(favAppid, "")); favDlg.close(); };
+$("#fav-done").onclick = async () => { await saveFavName(); favDlg.close(); };
 
 /* ---------- screen saver ---------- */
 const svDlg = $("#dlg-saver"); wireDialog(svDlg);

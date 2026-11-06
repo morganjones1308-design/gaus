@@ -52,6 +52,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import webbrowser
 import zlib
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -72,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.14"
+APP_VERSION = "1.15"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -83,8 +84,16 @@ CONFIG_PATH = APP_DIR / "config.json"
 STATE_PATH = APP_DIR / "state.json"
 LOG_PATH = APP_DIR / "scheduler.log"
 LOCK_PATH = APP_DIR / "app.lock"
+FAVOURITES_PATH = APP_DIR / "favourites.json"
 GENERIC_KEY = "_generic"
 SAVER_KEY = "_saver"            # the pictures the user chose for their own screen saver
+# Names to pick from in the favourite character list. Anyone can also type a name, so new heroes work too.
+ROSTERS: dict[int, list[str]] = {2767030: [
+    "Adam Warlock", "Angela", "Black Panther", "Black Widow", "Blade", "Captain America", "Cloak & Dagger", "Daredevil",
+    "Doctor Strange", "Emma Frost", "Gambit", "Groot", "Hawkeye", "Hela", "Hulk", "Human Torch", "Invisible Woman",
+    "Iron Fist", "Iron Man", "Jeff the Land Shark", "Loki", "Luna Snow", "Magik", "Magneto", "Mantis", "Mister Fantastic",
+    "Moon Knight", "Namor", "Peni Parker", "Phoenix", "Psylocke", "Rocket Raccoon", "Scarlet Witch", "Spider-Man",
+    "Squirrel Girl", "Star-Lord", "Storm", "The Punisher", "The Thing", "Thor", "Ultron", "Venom", "Winter Soldier", "Wolverine"]}
 
 # Where the app looks for new versions of itself: an https:// link to update.json.
 # Set it ONCE before building (so your gf's copy is pre-configured) or paste it into
@@ -1516,7 +1525,26 @@ def photo_entries(key: Any) -> list[dict[str, Any]]:
     return out
 
 
+def favourite_of(appid: int) -> str:
+    data = read_json(FAVOURITES_PATH, {})
+    return str(data.get(str(appid), "")) if isinstance(data, dict) else ""
+
+
+def favourite_key(appid: int, name: str) -> str:
+    """Each character keeps its own pictures, so switching favourites and back loses nothing."""
+    return f"fav_{appid}_" + re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def favourite_entries(appid: int) -> list[dict[str, Any]]:
+    name = favourite_of(appid)
+    return photo_entries(favourite_key(appid, name)) if name else []
+
+
 def get_slides(appid: int) -> list[dict[str, Any]]:
+    favourite = favourite_entries(appid)
+    if favourite:
+        random.shuffle(favourite)
+        return favourite
     entries = photo_entries(appid)
     if len(entries) < MIN_SLIDES:
         entries += photo_entries(GENERIC_KEY)
@@ -3066,6 +3094,26 @@ class Api:
         return self._ctl.start_saver(int(appid), to_int(dim, 60), str(others), str(source), bool(ask))
 
     @_api
+    def favourite(self, appid: int) -> dict[str, Any]:
+        return self._ctl.favourite(int(appid))
+
+    @_api
+    def set_favourite(self, appid: int, name: str) -> dict[str, Any]:
+        return self._ctl.set_favourite(int(appid), str(name))
+
+    @_api
+    def add_favourite_images(self, appid: int) -> dict[str, Any]:
+        return self._ctl.add_favourite_images(int(appid))
+
+    @_api
+    def remove_favourite_image(self, appid: int, file: str) -> dict[str, Any]:
+        return self._ctl.remove_favourite_image(int(appid), str(file))
+
+    @_api
+    def find_art(self, appid: int) -> dict[str, Any]:
+        return self._ctl.find_art(int(appid))
+
+    @_api
     def nerd_stats(self) -> dict[str, Any]:
         return self._ctl.nerd_stats()
 
@@ -3516,13 +3564,15 @@ class Controller:
                     "patched": upd_txt if precise else "-", "next": nxt_txt,
                     "next_ts": nxt.timestamp() if on and nxt is not None else None,
                     "precise": precise, "photos": self.photos.count(g["appid"]), "status": status,
+                    "favourite": favourite_of(g["appid"]),
                     "cover": self._cover(g["appid"])})
         return out
 
     def _cover(self, appid: int) -> str:
-        """The game's art for the library page: a new pick each launch, and the user's own pictures come first."""
+        """The game's art for the library page: a new pick each launch. A favourite character's pictures come first,
+        then the user's own pictures for the game, then its official art."""
         if appid not in self._covers:
-            entries = photo_entries(appid)
+            entries = favourite_entries(appid) or photo_entries(appid)
             own = [e for e in entries if e.get("source") == OWN_SRC]
             random.shuffle(own or entries)
             for e in own or entries:
@@ -4035,19 +4085,68 @@ class Controller:
                     self.show_window()
 
     def saver_images(self) -> list[dict[str, str]]:
-        return [{"file": e["file"], "title": e.get("title", ""), "url": f"/photos/{SAVER_KEY}/{urllib.parse.quote(e['file'])}"}
-                for e in photo_entries(SAVER_KEY)]
+        return self._own_images(SAVER_KEY)
 
     def remove_saver_image(self, file: str) -> list[dict[str, str]]:
-        index = load_index(SAVER_KEY)
+        return self._remove_own_image(SAVER_KEY, file)
+
+    def _own_images(self, key: str) -> list[dict[str, str]]:
+        return [{"file": e["file"], "title": e.get("title", ""), "url": f"/photos/{key}/{urllib.parse.quote(e['file'])}"}
+                for e in photo_entries(key)]
+
+    def _remove_own_image(self, key: str, file: str) -> list[dict[str, str]]:
+        index = load_index(key)
         keep = [e for e in index if e.get("file") != file]
         if len(keep) != len(index):       # only a name from the list is ever deleted
             try:
-                (photo_dir(SAVER_KEY) / file).unlink()
+                (photo_dir(key) / file).unlink()
             except OSError:
                 pass
-            write_json(photo_dir(SAVER_KEY) / "index.json", keep)
-        return self.saver_images()
+            write_json(photo_dir(key) / "index.json", keep)
+        return self._own_images(key)
+
+    # ---- favourite character: the player picks one and adds its art; with none picked the official art rotates
+    def favourite(self, appid: int) -> dict[str, Any]:
+        name = favourite_of(appid)
+        return {"name": name, "roster": ROSTERS.get(appid, []), "images": self._own_images(favourite_key(appid, name)) if name else []}
+
+    def _favourite_changed(self, appid: int) -> dict[str, Any]:
+        self._covers.pop(appid, None)
+        self.screen_appid = 0
+        if self.ui_ready.is_set():
+            self.push("rows", self.rows())
+        return self.favourite(appid)
+
+    def set_favourite(self, appid: int, name: str) -> dict[str, Any]:
+        data = read_json(FAVOURITES_PATH, {})
+        data = data if isinstance(data, dict) else {}
+        name = name.strip()[:60]
+        if name:
+            data[str(appid)] = name
+        else:
+            data.pop(str(appid), None)
+        write_json(FAVOURITES_PATH, data)
+        log(f"Favourite character for game {appid}: {name or 'none'}")
+        return self._favourite_changed(appid)
+
+    def add_favourite_images(self, appid: int) -> dict[str, Any]:
+        name = favourite_of(appid)
+        if not name:
+            return {"error": "Choose a character first."}
+        res = self.add_images(favourite_key(appid, name))
+        return {**res, **self._favourite_changed(appid)}
+
+    def remove_favourite_image(self, appid: int, file: str) -> dict[str, Any]:
+        self._remove_own_image(favourite_key(appid, favourite_of(appid)), file)
+        return self._favourite_changed(appid)
+
+    def find_art(self, appid: int) -> dict[str, Any]:
+        game, name = self.cfg.get_game(appid), favourite_of(appid)
+        if game is None or not name:
+            return {"error": "Choose a character first."}
+        query = urllib.parse.urlencode({"tbm": "isch", "q": f"{name} {game['name']} art"})
+        webbrowser.open(f"https://www.google.com/search?{query}")
+        return {"ok": True}
 
     def start_saver(self, appid: int, dim: int, others: str, source: str, ask: bool) -> dict[str, Any]:
         game = self.cfg.get_game(appid)
