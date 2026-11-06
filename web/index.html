@@ -49,7 +49,7 @@
           <div class="detail" id="detail">
             <div class="empty" id="empty" hidden></div>
             <div id="game-page" hidden>
-              <div class="hero" id="hero"><h2 id="gp-name"></h2></div>
+              <div class="hero" id="hero"><h2 id="gp-name"></h2><button class="patch-pill" id="g-notes" type="button" hidden>Patch notes</button></div>
               <div class="actions">
                 <button class="btn primary" id="g-check" type="button">Check for update</button>
                 <button class="btn" id="g-track" type="button">Track download</button>
@@ -135,6 +135,8 @@
           <article><h3>Screen saver</h3>
             <p>While a download runs, show its art full screen with the progress, darken the screen, and dim or black out your other monitors. Your launcher is minimized and keeps downloading. Click or press Esc to leave. The monitors stay powered, and Gaus can't change your room lights.</p>
             <p>To use your own pictures, go to <b>Settings › Screen saver</b> and choose <b>My pictures</b>. Gaus art is the default.</p></article>
+          <article><h3>Patch notes</h3>
+            <p>Select a game and click the <b>Latest patch</b> pill on its art to see the highlights of its latest updates, newest first, with a link to read each one in full. For Marvel Rivals, changes are also grouped by character, using your own picture of them if you've added one. Each gets a Buffed, Nerfed or Mixed badge, and a cog means a bug was fixed. Gaus works these out from the wording, so if a badge looks wrong, the full notes have the final say. They come from Steam, so other launchers' games don't have them yet.</p></article>
           <article><h3>Your favourite character</h3>
             <p>Select a game and choose <b>Choose favourite</b>. Pick a character and search for art with the site buttons. Drag a picture you like into the box, or copy it and press Ctrl+V. If a site asks you to sign in, use your own account in your browser first. Pictures become the game's art and screen saver. With no favourite, the official art changes each time Gaus starts.</p></article>
           <article><h3>Powering down</h3>
@@ -258,6 +260,13 @@
     </div>
     <div class="d-foot"><button class="btn ghost" id="sv-no" type="button">Not now</button><button class="btn primary" id="sv-ok" type="submit">Start screen saver</button></div>
   </form>
+</dialog>
+
+<!-- patch notes -->
+<dialog id="dlg-notes" aria-labelledby="notes-title">
+  <div class="d-head"><h2 id="notes-title">Patch notes</h2><p id="notes-sub"></p></div>
+  <div class="d-body"><div class="notes" id="notes-list"></div></div>
+  <div class="d-foot"><button class="btn ghost" id="notes-site" type="button" style="margin-right:auto" hidden>Official news page</button><button class="btn" type="button" data-close>Close</button></div>
 </dialog>
 
 <!-- favourite character -->

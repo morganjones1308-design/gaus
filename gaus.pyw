@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.16"
+APP_VERSION = "1.17"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -90,13 +90,17 @@ SAVER_KEY = "_saver"            # the pictures the user chose for their own scre
 ART_SEARCHES = {"google": "https://www.google.com/search?tbm=isch&q=", "pinterest": "https://www.pinterest.com/search/pins/?q=",
                 "deviantart": "https://www.deviantart.com/search?q=", "artstation": "https://www.artstation.com/search?sort_by=relevance&query="}
 MAX_PICTURE_BYTES = 30 * 1024 * 1024
+NEWS_PAGES = {2767030: "https://www.marvelrivals.com/news/"}    # a game's own news site, opened in the browser
+_PATCH_NOTES = re.compile(r"patch notes|balance post|balance adjust|extra balance|hotfix", re.I)
+_PATCH_WORDS = re.compile(r"patch|update|hotfix|balance|version|bug fix|maintenance|season", re.I)
 # Names to pick from in the favourite character list. Anyone can also type a name, so new heroes work too.
 ROSTERS: dict[int, list[str]] = {2767030: [
-    "Adam Warlock", "Angela", "Black Panther", "Black Widow", "Blade", "Captain America", "Cloak & Dagger", "Daredevil",
-    "Doctor Strange", "Emma Frost", "Gambit", "Groot", "Hawkeye", "Hela", "Hulk", "Human Torch", "Invisible Woman",
-    "Iron Fist", "Iron Man", "Jeff the Land Shark", "Loki", "Luna Snow", "Magik", "Magneto", "Mantis", "Mister Fantastic",
-    "Moon Knight", "Namor", "Peni Parker", "Phoenix", "Psylocke", "Rocket Raccoon", "Scarlet Witch", "Spider-Man",
-    "Squirrel Girl", "Star-Lord", "Storm", "The Punisher", "The Thing", "Thor", "Ultron", "Venom", "Winter Soldier", "Wolverine"]}
+    "Adam Warlock", "Angela", "Black Cat", "Black Panther", "Black Widow", "Blade", "Captain America", "Cloak & Dagger",
+    "Cyclops", "Daredevil", "Deadpool", "Devil Dinosaur", "Doctor Strange", "Elsa Bloodstone", "Emma Frost", "Gambit",
+    "Gorr the God Butcher", "Groot", "Hawkeye", "Hela", "Hulk", "Human Torch", "Invisible Woman", "Iron Fist", "Iron Man",
+    "Jeff the Land Shark", "Jubilee", "Loki", "Luna Snow", "Magik", "Magneto", "Mantis", "Mister Fantastic", "Moon Knight",
+    "Namor", "Peni Parker", "Phoenix", "Psylocke", "Rocket Raccoon", "Rogue", "Scarlet Witch", "Spider-Man", "Squirrel Girl",
+    "Star-Lord", "Storm", "The Hood", "The Punisher", "The Thing", "Thor", "Ultron", "Venom", "White Fox", "Winter Soldier", "Wolverine"]}
 
 # Where the app looks for new versions of itself: an https:// link to update.json.
 # Set it ONCE before building (so your gf's copy is pre-configured) or paste it into
@@ -1268,6 +1272,152 @@ def http_get(url: str, timeout: int = 25, max_bytes: Optional[int] = None) -> by
                 raise ValueError("file too large")
             chunks.append(chunk)
         return b"".join(chunks)
+
+
+_LINE_TAGS = re.compile(r"\[/?(?:\*|(?:p|list|olist|li)\b[^\]]*)\]")
+_LOWER_IS_BETTER = re.compile(r"cooldown|\bcost\b|recovery|wind-?up|charge time|cast(?:ing)? time|delay|spread|recoil|damage taken|damage received|threshold|fall-?off|interval|self-damage")
+_HIGHER_IS_BETTER = re.compile(r"damage|health|heal|speed|duration|range|radius|shield|armor|bonus|boost|charge|ammo|capacity|size|energy|lifesteal|width|distance")
+
+
+def classify_change(point: str) -> str:
+    """Reads a patch-note line the way the notes are worded: 'fix', 'buff', 'nerf', or '' when it can't be sure.
+    'Reduce health' is a nerf but 'Reduce cooldown' is a buff, so it looks at what changes as well as which way."""
+    low = point.lower()
+    if re.search(r"\b(fixed|resolved|addressed|to fix)\b", low):
+        return "fix"
+    if re.match(r"(?:\d+\.\s*)?buff\b", low):
+        return "buff"
+    if re.match(r"(?:\d+\.\s*)?nerf\b", low):
+        return "nerf"
+    if re.search(r"\benem|\bopponent", low):      # making things worse for enemies reads backwards, so don't guess
+        return ""
+    verdicts = set()
+    for sentence in re.split(r"(?<=[.;])\s+|\s+and\s+(?=(?:slightly\s+)?(?:increase|raise|enhance|boost|extend|reduce|decrease|lower|shorten)\b)", low):
+        sentence = sentence.replace("cooldown reduction", "boost")
+        numbers = re.search(r"from\s+([\d.]*\d)\D*?\bto\s+([\d.]*\d)", sentence)
+        verb = re.match(r"(?:[^:]{0,40}:\s*|when [^,]+,\s*|in [^,]+,\s*)?(?:slightly\s+)?(increase|raise|enhance|boost|extend|reduce|decrease|lower|shorten)\b", sentence)
+        if numbers and float(numbers[1]) != float(numbers[2]):
+            up = float(numbers[2]) > float(numbers[1])
+        elif verb:
+            up = verb[1] in ("increase", "raise", "enhance", "boost", "extend")
+        else:
+            continue
+        if _LOWER_IS_BETTER.search(sentence):
+            verdicts.add("nerf" if up else "buff")
+        elif _HIGHER_IS_BETTER.search(sentence):
+            verdicts.add("buff" if up else "nerf")
+    return verdicts.pop() if len(verdicts) == 1 else ""
+
+
+def _plain_text(text: str) -> str:
+    text = re.sub(r"\{STEAM_CLAN_IMAGE\}\S*|https?://\S+|\[[^\]]*\]|<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def digest_post(contents: str, max_sections: int = 4, per_section: int = 3, line_chars: int = 90) -> list[dict[str, Any]]:
+    """Boils a post down to its own headings and first few points, each kept short. The full post stays a link away."""
+    marked = re.sub(r"\[h[1-3]\](.*?)\[/h[1-3]\]", lambda m: "\n#" + _plain_text(m[1]) + "\n", contents, flags=re.S)
+    marked = _LINE_TAGS.sub("\n", marked)
+    sections = [{"heading": "", "items": []}]
+    for line in marked.splitlines():
+        if line.startswith("#"):
+            sections.append({"heading": line[1:].strip()[:70], "items": []})
+        else:
+            point = _plain_text(line).lstrip("-•* ")
+            if point:
+                sections[-1]["items"].append(point if len(point) <= line_chars else point[:line_chars].rsplit(" ", 1)[0] + "…")
+    named = [s for s in sections if s["heading"] and s["items"]]
+    chosen = named or [{"heading": "", "items": sections[0]["items"]}]     # no headings: just its first points
+    return [{"heading": s["heading"], "items": s["items"][:per_section], "more": max(0, len(s["items"]) - per_section)}
+            for s in chosen[:max_sections] if s["items"]]
+
+
+def heroes_in_post(contents: str, roster: list[str], max_heroes: int = 30, per_hero: int = 3, line_chars: int = 120) -> list[dict[str, Any]]:
+    """Each character's changes in a post. Balance posts list them under a heading with the character's name, and
+    patch notes name the character in the line ("Gorr's Glitch: Fixed a bug where..."). Flavour text is left out."""
+    if not roster:
+        return []
+    other_names = {"The Punisher": "Punisher", "Gorr the God Butcher": "Gorr"}
+    patterns = {n: re.compile(r"\b(?:" + re.escape(n) + (("|" + other_names[n]) if n in other_names else "") + r")\b") for n in roster}
+    headings = {n.lower(): n for n in roster} | {a.lower(): n for n, a in other_names.items()}
+    marked = re.sub(r"\[h[1-3]\](.*?)\[/h[1-3]\]", lambda m: "\n#" + _plain_text(m[1]) + "\n", contents, flags=re.S)
+    found: dict[str, list[dict[str, str]]] = {}
+    current = ""
+    for line in _LINE_TAGS.sub("\n", marked).splitlines():
+        is_heading = line.startswith("#")
+        point = _plain_text(line[1:] if is_heading else line).lstrip("-•* ")
+        if not point:
+            continue
+        if point.lower() in headings:
+            current = headings[point.lower()]
+            continue
+        if is_heading:
+            current = ""
+            continue
+        kind = classify_change(point)
+        owner = current
+        if not owner:
+            hits = [(m.start(), n) for n, p in patterns.items() if (m := p.search(point))]
+            owner = min(hits)[1] if hits else ""
+            # a line it can't read only counts if it's about that character: "Gorr's Setting: Added..."
+            if not kind and not (owner and hits and min(hits)[0] == 0 and ": " in point):
+                continue
+        elif not kind:
+            continue        # flavour text under a character's heading
+        if not owner:
+            continue
+        text = point.split(": ", 1)[1] if kind == "fix" and ": " in point else point
+        found.setdefault(owner, []).append({"text": text if len(text) <= line_chars else text[:line_chars].rsplit(" ", 1)[0] + "…", "kind": kind})
+    heroes = []
+    for name, changes in list(found.items())[:max_heroes]:
+        kinds = {c["kind"] for c in changes}
+        verdict = "mixed" if {"buff", "nerf"} <= kinds else "buff" if "buff" in kinds else "nerf" if "nerf" in kinds else ""
+        changes.sort(key=lambda c: not c["kind"])       # the ones it could read come first
+        heroes.append({"name": name, "verdict": verdict, "fixed": "fix" in kinds, "changes": changes[:per_hero], "more": max(0, len(changes) - per_hero)})
+    return heroes
+
+
+def _without_heroes(sections: list[dict[str, Any]], roster: list[str]) -> list[dict[str, Any]]:
+    """The sections left once characters have their own cards, so nothing is shown twice."""
+    if not roster:
+        return sections
+    names = [n.replace("The ", "") for n in roster]
+    out = []
+    for s in sections:
+        if s["heading"].upper() in ("VANGUARD", "DUELIST", "STRATEGIST", "HEROES", "ADJUSTMENTS", "BALANCE ADJUSTMENTS") or s["heading"] in roster:
+            continue
+        items = [i for i in s["items"] if not any(n in i for n in names)]
+        if items:
+            out.append({**s, "items": items})
+    return out
+
+
+def _patch_posts(appid: int, maxlength: int) -> list[dict[str, Any]]:
+    """Steam's public news feed for a game, newest first, with update posts picked out when there are any."""
+    params = urllib.parse.urlencode({"appid": appid, "count": 25, "maxlength": maxlength, "format": "json", "feeds": "steam_community_announcements"})
+    data = json.loads(http_get(f"https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?{params}", timeout=20, max_bytes=5_000_000))
+    posts = (data.get("appnews") or {}).get("newsitems") or []
+    # a game that posts real patch notes gets just those, without its other announcements
+    notes = [p for p in posts if "patchnotes" in (p.get("tags") or []) or _PATCH_NOTES.search(str(p.get("title", "")))]
+    if notes and notes[0] in posts[:5]:
+        return notes
+    return [p for p in posts if _PATCH_WORDS.search(str(p.get("title", "")))] or posts
+
+
+def fetch_latest_patch(appid: int) -> dict[str, str]:
+    """Just the newest post's date and title for the pill on the game page. The post bodies aren't downloaded."""
+    posts = _patch_posts(appid, 1)
+    if not posts:
+        return {}
+    return {"date": f"{datetime.fromtimestamp(to_int(posts[0].get('date')), SAST):%a %d %b %Y}", "title": str(posts[0].get("title", ""))[:160]}
+
+
+def fetch_patch_notes(appid: int, limit: int = 10) -> list[dict[str, Any]]:
+    """The game's latest update posts, newest first, as short digests with a link."""
+    posts = _patch_posts(appid, 0)
+    return [{"title": str(p.get("title", ""))[:160], "date": f"{datetime.fromtimestamp(to_int(p.get('date')), SAST):%a %d %b %Y}",
+             "sections": _without_heroes(digest_post(str(p.get("contents", ""))), ROSTERS.get(appid, [])), "url": str(p.get("url", "")),
+             "heroes": heroes_in_post(str(p.get("contents", "")), ROSTERS.get(appid, []))} for p in posts[:limit]]
 
 
 def fetch_remote_build(appid: int) -> Optional[dict[str, int]]:
@@ -3113,6 +3263,21 @@ class Api:
         return self._ctl.remove_favourite_image(int(appid), str(file))
 
     @_api
+    def latest_patch(self, appid: int) -> dict[str, str]:
+        try:
+            return fetch_latest_patch(int(appid))
+        except Exception:       # the pill just shows "Patch notes" without a date
+            return {}
+
+    @_api
+    def patch_notes(self, appid: int) -> dict[str, Any]:
+        return self._ctl.patch_notes(int(appid))
+
+    @_api
+    def open_news(self, url: str) -> dict[str, Any]:
+        return self._ctl.open_news(str(url))
+
+    @_api
     def find_art(self, appid: int, site: str) -> dict[str, Any]:
         return self._ctl.find_art(int(appid), str(site))
 
@@ -3360,6 +3525,7 @@ class Controller:
         self.dimmer = MonitorDimmer()
         self.saver_on = False
         self._covers: dict[int, str] = {}
+        self._news_links: set[str] = set()
         self.saver_asked: set[int] = set()
         # just restarted for an app update: don't offer or show anything for a download already under way
         self.no_prompt_until = time.time() + 90 if "--after-update" in sys.argv else 0.0
@@ -4150,6 +4316,31 @@ class Controller:
     def remove_favourite_image(self, appid: int, file: str) -> dict[str, Any]:
         self._remove_own_image(favourite_key(appid, favourite_of(appid)), file)
         return self._favourite_changed(appid)
+
+    def patch_notes(self, appid: int) -> dict[str, Any]:
+        """Fetched only when someone opens them, so nothing runs in the background."""
+        game = self.cfg.get_game(appid)
+        site = NEWS_PAGES.get(appid, "")
+        out: dict[str, Any] = {"notes": [], "site": site, "steam": bool(game and game.get("launcher") == "steam")}
+        self._news_links = {site} if site else set()
+        if out["steam"]:
+            try:
+                out["notes"] = fetch_patch_notes(appid)
+                self._news_links |= {n["url"] for n in out["notes"] if n["url"].startswith("https://")}
+                for note in out["notes"]:
+                    for hero in note["heroes"]:      # the player's own picture of this character, if they added one
+                        pictures = self._own_images(favourite_key(appid, hero["name"]))
+                        hero["image"] = pictures[0]["url"] if pictures else ""
+            except Exception as exc:
+                log(f"Could not get patch notes for game {appid}: {exc!r}")
+                out["error"] = "Couldn't get the patch notes. Check your internet connection and try again."
+        return out
+
+    def open_news(self, url: str) -> dict[str, Any]:
+        if url not in self._news_links:     # only links the patch notes list just gave us
+            return {"error": "That link isn't available."}
+        webbrowser.open(url)
+        return {"ok": True}
 
     def find_art(self, appid: int, site: str) -> dict[str, Any]:
         game, name = self.cfg.get_game(appid), favourite_of(appid)

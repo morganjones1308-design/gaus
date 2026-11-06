@@ -160,6 +160,7 @@ function renderGamePage() {
   }
   $("#gp-name").textContent = r.name;
   $("#g-fav").textContent = r.favourite ? `Favourite: ${r.favourite}` : "Choose favourite";
+  drawPatchPill(r);
   const art = r.cover ? `url("${r.cover}")` : "none";
   if ($("#hero").dataset.art !== art) { $("#hero").dataset.art = art; $("#hero").style.backgroundImage = art; }
   $("#gp-status").textContent = r.status; $("#gp-status").className = statusClass(r.status) === "bad" ? "newer" : "";
@@ -232,6 +233,41 @@ async function setTracking(appid, name, on) {
   toast(on ? `Tracking ${name}…` : `Stopped tracking ${name}. The download carries on.`);
 }
 $("#dock").onclick = () => showTab("downloads");
+
+/* ---------- patch notes ---------- */
+const latestPatch = {};      // asked for once per game while the page is open
+async function drawPatchPill(r) {
+  const pill = $("#g-notes"); pill.hidden = !r.precise;
+  if (!r.precise) return;
+  if (!(r.appid in latestPatch)) { pill.textContent = "Patch notes"; pill.title = ""; latestPatch[r.appid] = api.latest_patch(r.appid); }
+  const d = await latestPatch[r.appid];
+  if (selRow()?.appid !== r.appid) return;   // they've moved on to another game
+  pill.textContent = d.date ? `Latest patch · ${d.date}` : "Patch notes";
+  pill.title = d.title || "";
+}
+const notesDlg = $("#dlg-notes"); wireDialog(notesDlg);
+const openNews = async (url) => { const r = await api.open_news(url); if (r.error) toast(r.error, true); };
+$("#g-notes").onclick = async (e) => {
+  const r = selRow(); if (!r) return;
+  await busy(e.currentTarget, async () => {
+    const d = await api.patch_notes(r.appid);
+    $("#notes-title").textContent = `${r.name}: patch notes`;
+    $("#notes-sub").textContent = d.notes.length ? "Highlights of the latest updates, newest first, from Steam." : "";
+    const list = $("#notes-list"); list.textContent = "";
+    d.notes.forEach((n) => list.append(el("article", {}, el("time", {}, n.date), el("h3", {}, n.title),
+      n.heroes.length ? el("div", { class: "note-heroes" }, n.heroes.map((h) => el("div", { class: "note-hero" },
+        el("div", { class: "hero-tile", style: h.image ? `background-image:url("${h.image}")` : null }, h.image ? null : h.name.split(/[\s-]+/).filter((w) => w !== "The" && w !== "the").slice(0, 2).map((w) => w[0]).join(""),
+          h.fixed ? el("span", { class: "hero-cog", title: "Bug fixed", "aria-label": "Bug fixed", role: "img" }, "⚙") : null),
+        el("div", {}, el("h4", {}, h.name, h.verdict ? el("span", { class: "pill " + h.verdict }, { buff: "Buffed", nerf: "Nerfed", mixed: "Mixed" }[h.verdict]) : null),
+          el("ul", { class: "changes" }, h.changes.map((c) => el("li", { class: c.kind }, c.kind === "fix" ? el("b", {}, "Fixed: ") : null, c.text))), h.more ? el("small", {}, `and ${h.more} more`) : null)))) : null,
+      n.sections.map((s) => el("section", {}, s.heading ? el("h4", {}, s.heading) : null,
+        el("ul", {}, s.items.map((i) => el("li", {}, i))), s.more ? el("small", {}, `and ${s.more} more`) : null)),
+      el("button", { type: "button", onclick: () => openNews(n.url) }, "Read the full notes"))));
+    if (!d.notes.length) list.append(el("p", { class: "hint" }, d.error || (d.steam ? "Steam has no update posts for this game yet." : "Patch notes come from Steam, so they aren't available for this launcher yet.")));
+    const site = $("#notes-site"); site.hidden = !d.site; site.onclick = () => openNews(d.site);
+    notesDlg.showModal();
+  });
+};
 
 /* ---------- favourite character ---------- */
 const favDlg = $("#dlg-fav"); wireDialog(favDlg);

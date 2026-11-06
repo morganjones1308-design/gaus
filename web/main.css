@@ -45,7 +45,9 @@ main { flex: 1; min-height: 0; }
 .lib-foot { display: grid; gap: 6px; padding: 10px 12px 14px; border-top: 1px solid var(--line); }
 
 .detail { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
-.hero { position: relative; flex: none; height: 240px; display: flex; align-items: flex-end; padding: 22px 28px; background: var(--side) center 30% / cover no-repeat; }
+.hero { position: relative; flex: none; height: 240px; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 8px; padding: 22px 28px; background: var(--side) center 30% / cover no-repeat; }
+.patch-pill { position: relative; padding: 5px 13px; border: 1px solid var(--lemon); border-radius: 999px; background: oklch(14% .026 265 / .82); color: var(--lemon); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background-color .1s ease-out, color .1s ease-out; }
+.patch-pill:hover { background: var(--lemon); color: var(--on-lemon); }
 .hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, var(--paper) 2%, oklch(17% .028 265 / .55) 50%, oklch(17% .028 265 / .1)); }
 .hero h2 { position: relative; font-size: clamp(26px, 3.6vw, 40px); line-height: 1.15; text-shadow: 0 2px 14px oklch(10% .02 265 / .8); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 28px 18px; }
@@ -123,6 +125,34 @@ main { flex: 1; min-height: 0; }
 .guide ol, .guide ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; }
 .guide b { color: var(--ink); font-weight: 600; }
 
+/* patch notes */
+.notes { display: grid; gap: 16px; }
+.notes article { display: grid; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.notes article:last-child { border-bottom: 0; padding-bottom: 0; }
+.notes time { font: 600 19px/1.2 var(--display); color: var(--lemon); }
+.notes h3 { font: 500 13px/1.35 var(--font); color: var(--muted); }
+.notes h4 { margin: 0 0 3px; font: 600 14px/1.3 var(--font); }
+.notes ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13.5px; display: grid; gap: 2px; }
+.note-heroes { display: grid; gap: 10px; padding: 10px 0; border-block: 1px solid var(--line); }
+.note-hero { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start; }
+.note-hero small { display: block; padding: 2px 0 0 18px; color: var(--muted); font-size: 12.5px; }
+.hero-tile { position: relative; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 6px; background: var(--cobalt) center 20% / cover no-repeat; color: var(--lemon); font: 600 18px var(--display); }
+.hero-cog { position: absolute; right: -6px; bottom: -6px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--paper-3); box-shadow: 0 0 0 2px var(--paper-2); color: var(--ink); font: 400 14px/1 "Segoe UI Symbol", var(--font); }
+.note-hero h4 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pill { padding: 1px 8px; border-radius: 999px; font: 700 11px/1.5 var(--font); letter-spacing: .03em; }
+.pill.buff { background: var(--lemon); color: var(--on-lemon); }
+.pill.nerf { background: var(--pink); color: #fff; }
+.pill.mixed { background: var(--cobalt-2); color: #fff; }
+.changes { list-style: none; padding-left: 0 !important; }
+.changes li { padding-left: 18px; position: relative; }
+.changes li::before { content: "•"; position: absolute; left: 4px; color: var(--muted); }
+.changes li.buff::before { content: "▲"; left: 1px; font-size: 10px; line-height: 2; color: var(--lemon); }
+.changes li.nerf::before { content: "▼"; left: 1px; font-size: 10px; line-height: 2; color: var(--alert); }
+.changes li b { font-weight: 600; color: var(--ink); }
+.notes section small { display: block; padding: 2px 0 0 18px; color: var(--muted); font-size: 12.5px; }
+.notes button { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--lemon); font-size: 13px; font-weight: 600; cursor: pointer; }
+.notes button:hover { text-decoration: underline; }
+
 /* drop a picture from the browser */
 .drop { display: grid; gap: 3px; padding: 14px 16px; border: 1px dashed var(--faint); border-radius: var(--r); text-align: center; transition: background-color .1s ease-out, border-color .1s ease-out; }
 .drop span { color: var(--muted); font-size: 12.5px; }
@@ -156,6 +186,7 @@ dialog form { display: flex; flex-direction: column; min-height: 0; }
 .d-head h2 { font-size: 20px; }
 .d-head p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
 .d-body { padding: 14px 22px; display: grid; gap: 16px; overflow: auto; }
+.d-body:focus { outline: none; }
 .d-foot { padding: 8px 22px 20px; display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
 .d-foot .errmsg { margin-right: auto; }
 .results { border: 1px solid var(--line); border-radius: var(--r); max-height: 230px; min-height: 120px; overflow: auto; background: var(--paper); }
