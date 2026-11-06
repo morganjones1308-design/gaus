@@ -146,7 +146,7 @@
             <p>While a download runs, show its art full screen with the progress, darken the screen, and dim or black out your other monitors. Your launcher is minimized and keeps downloading. Click or press Esc to leave. The monitors stay powered, and Gaus can't change your room lights.</p>
             <p>To use your own pictures, go to <b>Settings › Screen saver</b> and choose <b>My pictures</b>. Gaus art is the default.</p></article>
           <article><h3>Patch notes</h3>
-            <p>Select a game and click the <b>Latest patch</b> pill on its art to see the highlights of its latest updates, newest first, with a link to read each one in full. For Marvel Rivals, changes are also grouped by character, using your own picture of them if you've added one. Each gets a Buffed, Nerfed or Mixed badge, and a cog means a bug was fixed. Gaus works these out from the wording, so if a badge looks wrong, the full notes have the final say. They come from Steam, so other launchers' games don't have them yet.</p></article>
+            <p>Select a game and click the <b>Latest patch</b> pill on its art to see the highlights of its latest updates, newest first, with a link to read each one in full. For Marvel Rivals, changes are also grouped by character, using your own picture of them if you've added one. Click a character's tile to add one. Each gets a Buffed, Nerfed or Mixed badge, and a cog means a bug was fixed. Gaus works these out from the wording, so if a badge looks wrong, the full notes have the final say. They come from Steam, so other launchers' games don't have them yet.</p></article>
           <article><h3>Your favourite character</h3>
             <p>Select a game and choose <b>Choose favourite</b>. Pick a character and search for art with the site buttons. Drag a picture you like into the box, or copy it and press Ctrl+V. If a site asks you to sign in, use your own account in your browser first. Pictures become the game's art and screen saver. With no favourite, the official art changes each time Gaus starts.</p></article>
           <article><h3>Powering down</h3>
@@ -281,7 +281,7 @@
 
 <!-- favourite character -->
 <dialog id="dlg-fav" aria-labelledby="fav-title">
-  <div class="d-head"><h2 id="fav-title">Favourite character</h2><p>Pictures of your favourite become this game's art and screen saver. With no favourite, the official art keeps changing.</p></div>
+  <div class="d-head"><h2 id="fav-title">Favourite character</h2><p id="fav-intro"></p></div>
   <div class="d-body">
     <div class="field"><label for="fav-name">Character</label>
       <input class="input" id="fav-name" list="fav-list" placeholder="Search or type a name" autocomplete="off" maxlength="60"><datalist id="fav-list"></datalist></div>

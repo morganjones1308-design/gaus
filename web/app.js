@@ -260,10 +260,12 @@ $("#g-notes").onclick = async (e) => {
     const list = $("#notes-list"); list.textContent = "";
     d.notes.forEach((n) => list.append(el("article", {}, el("time", {}, n.date), el("h3", {}, n.title),
       n.heroes.length ? el("div", { class: "note-heroes" }, n.heroes.map((h) => el("div", { class: "note-hero" },
-        el("div", { class: "hero-tile", style: h.image ? `background-image:url("${h.image}")` : null }, h.image ? null : h.name.split(/[\s-]+/).filter((w) => w !== "The" && w !== "the").slice(0, 2).map((w) => w[0]).join(""),
-          h.fixed ? el("span", { class: "hero-cog", title: "Bug fixed", "aria-label": "Bug fixed", role: "img" }, "⚙") : null),
+        el("button", { type: "button", class: "hero-tile", "data-hero": h.name, title: `Add a picture of ${h.name}`, "aria-label": `Add a picture of ${h.name}`, style: h.image ? `background-image:url("${h.image}")` : null,
+          onclick: () => openHeroPictures(r.appid, h.name) },
+          el("span", { class: "hero-initials", hidden: !!h.image }, h.name.split(/[\s-]+/).filter((w) => w !== "The" && w !== "the").slice(0, 2).map((w) => w[0]).join("")),
+          h.fixed ? el("span", { class: "hero-cog", title: "Bug fixed", role: "img" }, "⚙") : null),
         el("div", {}, el("h4", {}, h.name, h.verdict ? el("span", { class: "pill " + h.verdict }, { buff: "Buffed", nerf: "Nerfed", mixed: "Mixed" }[h.verdict]) : null),
-          el("ul", { class: "changes" }, h.changes.map((c) => el("li", { class: c.kind }, c.team ? el("span", { class: "team-tag" }, `Team-Up: ${c.team}`) : null, c.kind === "fix" ? el("b", {}, "Fixed: ") : null, c.text))), h.more ? el("small", {}, `and ${h.more} more`) : null)))) : null,
+          el("ul", { class: "changes" }, h.changes.map((c) => el("li", { class: c.kind }, c.team ? el("span", { class: "team-tag" }, `Team-Up: ${c.team}`) : null, c.kind === "store" ? el("span", { class: "team-tag store" }, "In store") : null, c.kind === "fix" && !/^(fixed|resolved|addressed)\b/i.test(c.text) ? el("b", {}, "Fixed: ") : null, c.text))), h.more ? el("small", {}, `and ${h.more} more`) : null)))) : null,
       n.sections.map((s) => el("section", {}, s.heading ? el("h4", {}, s.heading) : null,
         el("ul", {}, s.items.map((i) => el("li", {}, i))), s.more ? el("small", {}, `and ${s.more} more`) : null)),
       el("button", { type: "button", onclick: () => openNews(n.url) }, "Read the full notes"))));
@@ -276,15 +278,35 @@ $("#g-notes").onclick = async (e) => {
 /* ---------- favourite character ---------- */
 const favDlg = $("#dlg-fav"); wireDialog(favDlg);
 let favAppid = 0;
+let favHero = "";      // adding pictures for one character from the patch notes, which leaves the favourite alone
 function drawFav(d) {
   if (document.activeElement !== $("#fav-name")) $("#fav-name").value = d.name;
   const box = $("#fav-pics"); box.textContent = "";
   d.images.forEach((p) => box.append(el("button", { class: "thumb", type: "button", title: `Remove ${p.title}`, "aria-label": `Remove ${p.title}`, style: `background-image:url("${p.url}")`,
-    onclick: async () => drawFav(await api.remove_favourite_image(favAppid, p.file)) })));
+    onclick: async () => drawFav(await api.remove_favourite_image(favAppid, p.file, favHero)) })));
   $("#fav-empty").hidden = !!d.images.length;
-  $("#fav-clear").hidden = !d.name;
+  $("#fav-clear").hidden = !d.name || !!favHero;
 }
+async function openHeroPictures(appid, name) {
+  favAppid = appid; favHero = name;
+  const d = await api.favourite(appid, name);
+  $("#fav-title").textContent = `${name}: pictures`;
+  $("#fav-intro").textContent = "These show on this character's card in the patch notes. Your favourite stays as it is.";
+  $("#fav-name").readOnly = true; $("#fav-name").removeAttribute("list");
+  $("#fav-name").value = name; drawFav(d);
+  favDlg.showModal(); $("#fav-add").focus();
+}
+favDlg.addEventListener("close", async () => {
+  const name = favHero; if (!name) return;
+  favHero = ""; $("#fav-name").readOnly = false; $("#fav-name").setAttribute("list", "fav-list");
+  const d = await api.favourite(favAppid, name);     // show the new picture on this character's cards right away
+  $$(`.hero-tile[data-hero="${CSS.escape(name)}"]`).forEach((t) => {
+    t.style.backgroundImage = d.images.length ? `url("${d.images[0].url}")` : "";
+    $(".hero-initials", t).hidden = !!d.images.length;
+  });
+});
 async function saveFavName() {   // the name box is saved before anything that relies on it
+  if (favHero) return api.favourite(favAppid, favHero);
   const name = $("#fav-name").value.trim();
   const d = await api.favourite(favAppid);
   if (name === d.name) return d;
@@ -297,6 +319,7 @@ $("#g-fav").onclick = async () => {
   favAppid = r.appid;
   const d = await api.favourite(favAppid);
   $("#fav-title").textContent = `${r.name}: favourite character`;
+  $("#fav-intro").textContent = "Pictures of your favourite become this game's art and screen saver. With no favourite, the official art keeps changing.";
   const list = $("#fav-list"); list.textContent = "";
   d.roster.forEach((n) => list.append(el("option", { value: n })));
   $("#fav-name").value = d.name; drawFav(d);
@@ -306,7 +329,7 @@ $("#fav-name").addEventListener("change", saveFavName);
 $$("#dlg-fav [data-site]").forEach((b) => { b.onclick = async () => {
   const d = await saveFavName();
   if (!d.name) return toast("Choose a character first.", true);
-  const r = await api.find_art(favAppid, b.dataset.site);
+  const r = await api.find_art(favAppid, b.dataset.site, favHero);
   if (r.error) toast(r.error, true); else toast("Search opened in your browser.");
 }; });
 /* pictures dragged or pasted in from the browser */
@@ -320,8 +343,8 @@ const readAsDataUrl = (file) => new Promise((ok, bad) => { const f = new FileRea
 async function favAdd(files, url) {
   const d = await saveFavName();
   if (!d.name) return toast("Choose a character first.", true);
-  for (const file of files) favResult(await api.add_favourite_data(favAppid, await readAsDataUrl(file), file.name.replace(/\.[^.]+$/, "")));
-  if (!files.length && url) favResult(url.startsWith("data:image/") ? await api.add_favourite_data(favAppid, url, "") : await api.add_favourite_url(favAppid, url));
+  for (const file of files) favResult(await api.add_favourite_data(favAppid, await readAsDataUrl(file), file.name.replace(/\.[^.]+$/, ""), favHero));
+  if (!files.length && url) favResult(url.startsWith("data:image/") ? await api.add_favourite_data(favAppid, url, "", favHero) : await api.add_favourite_url(favAppid, url, favHero));
 }
 const isLink = (t) => /^https?:\/\/\S+$/i.test(t);
 function linkFrom(dt) {
@@ -348,7 +371,7 @@ favDlg.addEventListener("paste", (e) => {
 $("#fav-add").onclick = (e) => busy(e.currentTarget, async () => {
   const d = await saveFavName();
   if (!d.name) return toast("Choose a character first.", true);
-  const r = await api.add_favourite_images(favAppid);
+  const r = await api.add_favourite_images(favAppid, favHero);
   if (r.error) return toast(r.error, true);
   if (r.skipped) toast(`${r.skipped} skipped: too small, not a picture, or already added.`, true);
   drawFav(r);

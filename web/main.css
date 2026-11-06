@@ -144,7 +144,9 @@ main { flex: 1; min-height: 0; }
 .note-heroes { display: grid; gap: 10px; padding: 10px 0; border-block: 1px solid var(--line); }
 .note-hero { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start; }
 .note-hero small { display: block; padding: 2px 0 0 18px; color: var(--muted); font-size: 12.5px; }
-.hero-tile { position: relative; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 6px; background: var(--cobalt) center 20% / cover no-repeat; color: var(--lemon); font: 600 18px var(--display); }
+.hero-tile { position: relative; width: 52px; height: 52px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: var(--cobalt) center 20% / cover no-repeat; color: var(--lemon); font: 600 18px var(--display); cursor: pointer; transition: box-shadow .1s ease-out; }
+.hero-tile:hover { box-shadow: 0 0 0 2px var(--lemon); }
+.team-tag.store { background: var(--paper-3); color: var(--ink-2); }
 .hero-cog { position: absolute; right: -6px; bottom: -6px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--paper-3); box-shadow: 0 0 0 2px var(--paper-2); color: var(--ink); font: 400 14px/1 "Segoe UI Symbol", var(--font); }
 .note-hero h4 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .pill { padding: 1px 8px; border-radius: 999px; font: 700 11px/1.5 var(--font); letter-spacing: .03em; }
@@ -158,8 +160,8 @@ main { flex: 1; min-height: 0; }
 .changes li.nerf::before { content: "▼"; left: 1px; font-size: 10px; line-height: 2; color: var(--alert); }
 .changes li b { font-weight: 600; color: var(--ink); }
 .notes section small { display: block; padding: 2px 0 0 18px; color: var(--muted); font-size: 12.5px; }
-.notes button { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--lemon); font-size: 13px; font-weight: 600; cursor: pointer; }
-.notes button:hover { text-decoration: underline; }
+.notes article > button { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--lemon); font-size: 13px; font-weight: 600; cursor: pointer; }
+.notes article > button:hover { text-decoration: underline; }
 
 /* drop a picture from the browser */
 .drop { display: grid; gap: 3px; padding: 14px 16px; border: 1px dashed var(--faint); border-radius: var(--r); text-align: center; transition: background-color .1s ease-out, border-color .1s ease-out; }

@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.19"
+APP_VERSION = "1.20"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -94,6 +94,7 @@ NEWS_PAGES = {2767030: "https://www.marvelrivals.com/news/"}    # a game's own n
 # The publisher's own pages, shown as they are in a window. Their terms rule out scraping them or copying their art.
 OFFICIAL_PAGES = {"stats": ("Marvel Rivals: hero stats", "https://www.marvelrivals.com/heroes_data/"),
                   "teamups": ("Marvel Rivals: team-ups", "https://www.marvelrivals.com/heroes/teamup.html")}
+_STORE_ITEM = re.compile(r"\bbundle\b|costume|\bskin\b|emote|\bspray\b|nameplate|\bmvp\b|\bvfx\b", re.I)
 _TEAM_UP_WITH = re.compile(r"team-up with ([A-Z][\w'&.\- ]*?)(?=,|\.|:|;| and |$)", re.I)
 _TEAM_UP_TITLE = re.compile(r"^(.{3,50}?)\s*\(\s*([^()/\-]+?)\s*-\s*[^()]+\)$")
 _PATCH_NOTES = re.compile(r"patch notes|balance post|balance adjust|extra balance|hotfix", re.I)
@@ -1378,6 +1379,8 @@ def heroes_in_post(contents: str, roster: list[str], max_heroes: int = 30, per_h
             continue
         text = point.split(": ", 1)[1] if kind == "fix" and ": " in point else point
         partner = _TEAM_UP_WITH.search(point)
+        if not kind and _STORE_ITEM.search(point):
+            kind = "store"      # a cosmetic, not a change to how the character plays
         found.setdefault(owner, []).append({"text": text if len(text) <= line_chars else text[:line_chars].rsplit(" ", 1)[0] + "…", "kind": kind,
                                             "team": partner[1].strip() if partner else team})
     heroes = []
@@ -3259,20 +3262,20 @@ class Api:
         return self._ctl.start_saver(int(appid), to_int(dim, 60), str(others), str(source), bool(ask))
 
     @_api
-    def favourite(self, appid: int) -> dict[str, Any]:
-        return self._ctl.favourite(int(appid))
+    def favourite(self, appid: int, hero: str = "") -> dict[str, Any]:
+        return self._ctl.favourite(int(appid), str(hero))
 
     @_api
     def set_favourite(self, appid: int, name: str) -> dict[str, Any]:
         return self._ctl.set_favourite(int(appid), str(name))
 
     @_api
-    def add_favourite_images(self, appid: int) -> dict[str, Any]:
-        return self._ctl.add_favourite_images(int(appid))
+    def add_favourite_images(self, appid: int, hero: str = "") -> dict[str, Any]:
+        return self._ctl.add_favourite_images(int(appid), str(hero))
 
     @_api
-    def remove_favourite_image(self, appid: int, file: str) -> dict[str, Any]:
-        return self._ctl.remove_favourite_image(int(appid), str(file))
+    def remove_favourite_image(self, appid: int, file: str, hero: str = "") -> dict[str, Any]:
+        return self._ctl.remove_favourite_image(int(appid), str(file), str(hero))
 
     @_api
     def open_official(self, kind: str) -> dict[str, Any]:
@@ -3294,16 +3297,16 @@ class Api:
         return self._ctl.open_news(str(url))
 
     @_api
-    def find_art(self, appid: int, site: str) -> dict[str, Any]:
-        return self._ctl.find_art(int(appid), str(site))
+    def find_art(self, appid: int, site: str, hero: str = "") -> dict[str, Any]:
+        return self._ctl.find_art(int(appid), str(site), str(hero))
 
     @_api
-    def add_favourite_data(self, appid: int, data_url: str, title: str) -> dict[str, Any]:
-        return self._ctl.add_favourite_data(int(appid), str(data_url), str(title))
+    def add_favourite_data(self, appid: int, data_url: str, title: str, hero: str = "") -> dict[str, Any]:
+        return self._ctl.add_favourite_data(int(appid), str(data_url), str(title), str(hero))
 
     @_api
-    def add_favourite_url(self, appid: int, url: str) -> dict[str, Any]:
-        return self._ctl.add_favourite_url(int(appid), str(url))
+    def add_favourite_url(self, appid: int, url: str, hero: str = "") -> dict[str, Any]:
+        return self._ctl.add_favourite_url(int(appid), str(url), str(hero))
 
     @_api
     def nerd_stats(self) -> dict[str, Any]:
@@ -4300,16 +4303,17 @@ class Controller:
         return self._own_images(key)
 
     # ---- favourite character: the player picks one and adds its art; with none picked the official art rotates
-    def favourite(self, appid: int) -> dict[str, Any]:
-        name = favourite_of(appid)
+    def favourite(self, appid: int, hero: str = "") -> dict[str, Any]:
+        """The pictures for one character: the one named, or else the game's favourite."""
+        name = hero or favourite_of(appid)
         return {"name": name, "roster": ROSTERS.get(appid, []), "images": self._own_images(favourite_key(appid, name)) if name else []}
 
-    def _favourite_changed(self, appid: int) -> dict[str, Any]:
+    def _favourite_changed(self, appid: int, hero: str = "") -> dict[str, Any]:
         self._covers.pop(appid, None)
         self.screen_appid = 0
         if self.ui_ready.is_set():
             self.push("rows", self.rows())
-        return self.favourite(appid)
+        return self.favourite(appid, hero)
 
     def set_favourite(self, appid: int, name: str) -> dict[str, Any]:
         data = read_json(FAVOURITES_PATH, {})
@@ -4323,16 +4327,16 @@ class Controller:
         log(f"Favourite character for game {appid}: {name or 'none'}")
         return self._favourite_changed(appid)
 
-    def add_favourite_images(self, appid: int) -> dict[str, Any]:
-        name = favourite_of(appid)
+    def add_favourite_images(self, appid: int, hero: str = "") -> dict[str, Any]:
+        name = hero or favourite_of(appid)
         if not name:
             return {"error": "Choose a character first."}
         res = self.add_images(favourite_key(appid, name))
-        return {**res, **self._favourite_changed(appid)}
+        return {**res, **self._favourite_changed(appid, hero)}
 
-    def remove_favourite_image(self, appid: int, file: str) -> dict[str, Any]:
-        self._remove_own_image(favourite_key(appid, favourite_of(appid)), file)
-        return self._favourite_changed(appid)
+    def remove_favourite_image(self, appid: int, file: str, hero: str = "") -> dict[str, Any]:
+        self._remove_own_image(favourite_key(appid, hero or favourite_of(appid)), file)
+        return self._favourite_changed(appid, hero)
 
     def patch_notes(self, appid: int) -> dict[str, Any]:
         """Fetched only when someone opens them, so nothing runs in the background."""
@@ -4374,16 +4378,16 @@ class Controller:
         webbrowser.open(url)
         return {"ok": True}
 
-    def find_art(self, appid: int, site: str) -> dict[str, Any]:
-        game, name = self.cfg.get_game(appid), favourite_of(appid)
+    def find_art(self, appid: int, site: str, hero: str = "") -> dict[str, Any]:
+        game, name = self.cfg.get_game(appid), hero or favourite_of(appid)
         if game is None or not name or site not in ART_SEARCHES:
             return {"error": "Choose a character first."}
         webbrowser.open(ART_SEARCHES[site] + urllib.parse.quote_plus(f"{name} {game['name']} art"))
         return {"ok": True}
 
-    def _add_favourite_picture(self, appid: int, data: bytes, title: str) -> dict[str, Any]:
+    def _add_favourite_picture(self, appid: int, data: bytes, title: str, hero: str = "") -> dict[str, Any]:
         """A picture the player dragged or pasted in. It goes through the same checks as a file they pick."""
-        name = favourite_of(appid)
+        name = hero or favourite_of(appid)
         if not name:
             return {"error": "Choose a character first."}
         if len(data) > MAX_PICTURE_BYTES:
@@ -4398,16 +4402,16 @@ class Controller:
             res["duplicate"] = not res.get("added") and any(e.get("page") == f"file:{src}" for e in load_index(key))
         finally:
             src.unlink(missing_ok=True)
-        return {**res, **self._favourite_changed(appid)}
+        return {**res, **self._favourite_changed(appid, hero)}
 
-    def add_favourite_data(self, appid: int, data_url: str, title: str) -> dict[str, Any]:
+    def add_favourite_data(self, appid: int, data_url: str, title: str, hero: str = "") -> dict[str, Any]:
         try:
             data = base64.b64decode(data_url.split(",", 1)[-1], validate=True)
         except ValueError:
             return {"error": "That didn't come through as a picture."}
-        return self._add_favourite_picture(appid, data, title)
+        return self._add_favourite_picture(appid, data, title, hero)
 
-    def add_favourite_url(self, appid: int, url: str) -> dict[str, Any]:
+    def add_favourite_url(self, appid: int, url: str, hero: str = "") -> dict[str, Any]:
         """A plain public download, with no login. If a site protects the picture this fails, and the player
         can drag or copy it from their own browser instead."""
         help_text = ("Gaus couldn't get a picture from that link. If the site needs you to sign in, "
@@ -4418,7 +4422,7 @@ class Controller:
             data = http_get(url, timeout=30, max_bytes=MAX_PICTURE_BYTES)
         except Exception:
             return {"error": help_text}
-        res = self._add_favourite_picture(appid, data, Path(urllib.parse.urlsplit(url).path).stem[:80])
+        res = self._add_favourite_picture(appid, data, Path(urllib.parse.urlsplit(url).path).stem[:80], hero)
         return {**res, "error": help_text} if res.get("skipped") and not res.get("added") and not res.get("duplicate") else res
 
     def start_saver(self, appid: int, dim: int, others: str, source: str, ask: bool) -> dict[str, Any]:
