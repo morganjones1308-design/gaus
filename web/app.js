@@ -566,7 +566,7 @@ const SCHEMA = [
     { key: "start_with_windows", type: "toggle", title: "Start with Windows", desc: "Runs quietly in the tray." },
     { key: "paused", type: "toggle", title: "Pause all scheduling" },
     { key: "auto_update_check", type: "toggle", title: "Look for new versions of Gaus every few hours" },
-    { key: "auto_install_updates", type: "toggle", title: "Install new versions by themselves", desc: "Only when nothing is downloading, so nobody has to click." },
+    { key: "auto_install_updates", type: "toggle", title: "Install new versions by themselves", desc: "Game downloads keep going, and Gaus catches up with them when it restarts." },
     { key: "update_feed_url", type: "text", title: "Update feed URL", stack: true },
     { custom: "update" } ] },
 ];

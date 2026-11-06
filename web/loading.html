@@ -30,8 +30,8 @@
   .track > i { display: block; height: 100%; width: var(--p, 0%); background: var(--lemon); transition: width 1.4s ease; }
   .track.indeterminate > i { width: 18%; animation: sweep 2.6s ease-in-out infinite; }
   @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(560%); } }
-  .hintkey { position: fixed; left: 4.5vw; top: 4vh; font-size: max(10px, 1.5vh); letter-spacing: .12em; text-transform: uppercase; color: rgba(255, 255, 255, .5); opacity: 0; animation: fade 6s ease .5s both; }
-  @keyframes fade { 0% { opacity: 0; } 15%, 70% { opacity: 1; } 100% { opacity: 0; } }
+  .hintkey { position: fixed; left: 4.5vw; top: 4vh; font-size: max(13px, 1.9vh); color: rgba(255, 255, 255, .78); text-shadow: 0 1px 6px #000; }
+  .hintkey kbd { font: 600 1em var(--font); padding: .1em .5em; margin-right: .15em; border: 1px solid rgba(255, 255, 255, .55); border-radius: 4px; color: #fff; }
   @media (prefers-reduced-motion: reduce) { .layer.kb { animation: none; } }
 </style></head>
 <body>
@@ -39,7 +39,7 @@
 <div class="layer" id="A"></div><div class="layer" id="B"></div>
 <div class="shade"></div>
 <div class="veil"></div>
-<div class="hintkey">Click or press Esc to hide</div>
+<div class="hintkey"><kbd>Esc</kbd> or click to exit. Your download keeps going.</div>
 <div class="note" id="note"></div>
 <div class="text" role="status" aria-live="polite">
   <div class="label"><svg class="pen" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="20"/></svg><span id="label">UPDATING</span></div>

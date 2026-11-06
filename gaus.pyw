@@ -72,7 +72,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.11"
+APP_VERSION = "1.13"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -148,7 +148,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "photos_per_game": 24,
     "start_with_windows": False,
     "auto_update_check": True,
-    "auto_install_updates": True,       # install a new app version by itself when nothing is downloading
+    "auto_install_updates": True,       # install a new app version by itself
     "generic_quiet_minutes": 4,        # non-Steam launchers: finished after this long without activity
     "update_feed_url": "",
 }
@@ -1391,11 +1391,12 @@ def download_and_swap(manifest: dict[str, str], progress: Any = None) -> None:
         raise
 
 
-def relaunch_self() -> None:
+def relaunch_self(show_window: bool) -> None:
     env = dict(os.environ)
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"   # lets a one-file build start a fresh, independent copy
     flags = (DETACHED_PROCESS | 0x00000200) if IS_WINDOWS else 0
-    subprocess.Popen([sys.executable, "--after-update"], env=env, creationflags=flags, close_fds=True)
+    args = [sys.executable, "--after-update"] + (["--show"] if show_window else [])
+    subprocess.Popen(args, env=env, creationflags=flags, close_fds=True)
 
 
 # --------------------------------------------------------------------------- photos
@@ -2060,6 +2061,16 @@ class Engine(threading.Thread):
         with self.lock:
             self.track_requests.append((appid, on))
 
+    def save_resume(self) -> None:
+        """Remember what we're following, so the restarted app carries on: a scheduled update still powers down."""
+        self.state["resume"] = [{"at": time.time(), "appid": s.appid, "key": s.key, "manual": s.manual, "tracked": s.tracked,
+                                 "end": s.window_end.isoformat() if s.window_end else None, "build": s.initial_build}
+                                for s in list(self.sessions.values()) if s.phase != "done"]
+        try:
+            write_json(STATE_PATH, self.state)
+        except OSError:
+            pass
+
     def countdown_done(self, proceed: bool) -> None:
         self.countdown_answer = proceed
 
@@ -2107,6 +2118,23 @@ class Engine(threading.Thread):
         self._refresh_info(games)
         self.live = steam_live(steam)
 
+        resume = self.state.pop("resume", None)     # what we were following before restarting for an app update
+        if resume is not None:
+            try:
+                write_json(STATE_PATH, self.state)  # used once only: an old note must never revive a finished update
+            except OSError:
+                pass
+        for r in resume or []:
+            g = next((x for x in games if x["appid"] == r["appid"]), None)
+            if g is None or r["key"] in self.state["handled"] or time.time() - r["at"] > 300:
+                continue
+            end = datetime.fromisoformat(r["end"]) if r["end"] else None
+            self._begin(g, r["key"], r["manual"], end, tracked=r["tracked"])
+            s = self.sessions[r["appid"]]
+            if r["build"]:
+                s.initial_build, s.saw_activity = r["build"], True
+                s.phase, s.dl_started, s.last_change = "downloading", time.time(), time.time()
+
         with self.lock:
             requests, self.manual_requests = self.manual_requests, []
             tracks, self.track_requests = self.track_requests, []
@@ -2122,7 +2150,17 @@ class Engine(threading.Thread):
                 self.track_off.add(appid)
                 del self.sessions[appid]
                 log(f"{s.name}: stopped tracking (the download itself carries on)")
-        for g in games:
+
+        if not settings["paused"]:
+            handled = self.state["handled"]
+            for g in games:
+                if g["enabled"] and g["appid"] not in self.sessions:
+                    t = active_trigger(g, now, settings, handled)
+                    if t:
+                        end = t + timedelta(minutes=int(settings["watch_minutes"]))
+                        self._begin(g, trigger_key(g["appid"], t), False, end)
+
+        for g in games:         # after the schedule, so a download in an update window counts as scheduled
             if g["launcher"] != "steam":
                 continue
             appid = g["appid"]
@@ -2133,15 +2171,6 @@ class Engine(threading.Thread):
                                                  and self._steam_up())
             if wanted and appid not in self.sessions:
                 self._begin(g, f"track|{appid}|{now.isoformat()}", True, None, tracked=True)
-
-        if not settings["paused"]:
-            handled = self.state["handled"]
-            for g in games:
-                if g["enabled"] and g["appid"] not in self.sessions:
-                    t = active_trigger(g, now, settings, handled)
-                    if t:
-                        end = t + timedelta(minutes=int(settings["watch_minutes"]))
-                        self._begin(g, trigger_key(g["appid"], t), False, end)
 
         for s in list(self.sessions.values()):
             self._advance(s, settings, steam, now)
@@ -3272,6 +3301,9 @@ class Controller:
         self.dimmer = MonitorDimmer()
         self.saver_on = False
         self.saver_asked: set[int] = set()
+        # just restarted for an app update: don't offer or show anything for a download already under way
+        self.no_prompt_until = time.time() + 90 if "--after-update" in sys.argv else 0.0
+        self.run_dismissed = "--after-update" in sys.argv
         self.shown = False               # the main window has been on screen at least once
         self.parked = False              # the main window is hidden with its page unloaded, to use less memory
         self.pending_prompt: Optional[dict[str, Any]] = None
@@ -3866,7 +3898,7 @@ class Controller:
                 auto = self.cfg.settings["auto_install_updates"] and is_frozen()
                 self.on_notify("Gaus update available",
                                f"Version {info['version']} is out. " +
-                               ("It installs by itself when nothing is downloading." if auto
+                               ("It installs by itself, and any game download keeps going." if auto
                                 else "Open Gaus to install it."))
             if manual:
                 self.show_window()
@@ -3880,13 +3912,15 @@ class Controller:
                 self.push("notice", f"You are on the latest version ({APP_VERSION}).")
 
     def _idle_for_install(self) -> bool:
-        return (not any(s.phase != "done" for s in list(self.engine.sessions.values()))
-                and self.engine.shutdown is None and self.countdown is None and not self.preview_active
-                and not self.install_busy)
+        """A game download doesn't matter: the launcher does that work, and Gaus picks it back up after restarting.
+        Only things Gaus itself is in the middle of have to finish first."""
+        e = self.engine
+        return (e.shutdown is None and e.warmup is None and not e.warmup_queue and not e.run_results
+                and self.countdown is None and not self.preview_active and not self.saver_on and not self.install_busy)
 
     def _auto_install_tick(self) -> None:
-        """Remote updates: when a newer version has been published, install it quietly as soon as
-        nothing is downloading, so it never needs anyone to click."""
+        """Remote updates: when a newer version has been published, install it quietly,
+        so it never needs anyone to click."""
         if (self.update_info is not None and self.cfg.settings["auto_install_updates"] and is_frozen()
                 and self._idle_for_install()):
             log("Installing the new app version automatically")
@@ -3900,8 +3934,6 @@ class Controller:
             return {"error": "An update is already being installed."}
         if not is_frozen():
             return {"error": "Self-update only works in the built .exe. In this script version, copy the new gaus.pyw and web folder over the old ones."}
-        if any(s.phase != "done" for s in list(self.engine.sessions.values())):
-            return {"error": "A game update is in progress. Install the app update when it has finished."}
         self.install_busy = True
         threading.Thread(target=self._install_run, args=(info, silent), daemon=True, name="self-update").start()
         return {"started": True}
@@ -3929,10 +3961,11 @@ class Controller:
                 self.push("installFailed", str(err))
             return
         log("App update installed - restarting")
+        self.engine.save_resume()
         if self.instance_lock is not None:
             self.instance_lock.release()
         try:
-            relaunch_self()
+            relaunch_self(not self.parked)
         except OSError as exc:
             log(f"Could not restart automatically: {exc}")
         self.quit("restarting to install an update")
@@ -3989,7 +4022,8 @@ class Controller:
         for i in items:
             if i["tracked"] and i["progress"] is not None and i["appid"] not in self.saver_asked:
                 self.saver_asked.add(i["appid"])
-                if self.cfg.settings["saver_ask"] and not self.saver_on and not self.screen.visible and running_app_id() == 0:
+                if (time.time() >= self.no_prompt_until and self.cfg.settings["saver_ask"] and not self.saver_on
+                        and not self.screen.visible and running_app_id() == 0):
                     self.pending_prompt = i      # the page may need to load first, so it arrives with the state
                     self.show_window()
 
@@ -4205,8 +4239,8 @@ def main() -> int:
     ctl = Controller(cfg, engine, photos, server, lock)
     ctl.build_tray(pystray, Image)
 
-    # after an update it comes back quietly too, so a window never pops up in the middle of a game
-    minimized = "--minimized" in sys.argv or "--after-update" in sys.argv
+    # after an update it comes back as it was: an open window stays open, and none pops up in the middle of a game
+    minimized = "--minimized" in sys.argv or ("--after-update" in sys.argv and "--show" not in sys.argv)
     splash = None
     if not minimized:
         try:
