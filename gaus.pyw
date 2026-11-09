@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.21"
+APP_VERSION = "1.22"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -4488,6 +4488,26 @@ def main() -> int:
         return False
 
     ctl.main.events.closing += on_closing
+
+    def let_windows_shut_down() -> None:
+        """Closing the window only hides Gaus in the tray, and pywebview cancels the close to do that. When Windows
+        itself is shutting down that cancel blocks the shutdown, so for that one reason the close is let through."""
+        for _ in range(600):
+            form = getattr(ctl.main, "native", None)
+            if form is not None:
+                break
+            time.sleep(.1)
+        else:
+            return
+
+        def on_form_closing(_sender: Any, args: Any) -> None:     # runs after pywebview's own handler
+            if str(args.CloseReason) in ("WindowsShutDown", "TaskManagerClosing"):
+                ctl.quitting = True
+                args.Cancel = False
+
+        form.FormClosing += on_form_closing
+
+    threading.Thread(target=let_windows_shut_down, daemon=True, name="shutdown-ok").start()
 
     _s, games = cfg.snapshot()
     for g in games:
