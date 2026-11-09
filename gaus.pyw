@@ -73,7 +73,7 @@ except ImportError:  # optional: only the non-Steam activity watching needs it
 IS_WINDOWS = sys.platform.startswith("win")
 APP_TITLE = "Gaus"
 APP_TAGLINE = "Gaming \u00b7 Automated \u00b7 Updating \u00b7 Service"
-APP_VERSION = "1.22"
+APP_VERSION = "1.23"
 USER_AGENT = f"Gaus/{APP_VERSION} (personal home app; Python urllib)"
 SAST = timezone(timedelta(hours=2), "SAST")
 
@@ -2926,6 +2926,52 @@ class AssetServer:
         return 200, _MIME.get(target.suffix.lower(), "application/octet-stream"), target.read_bytes()
 
 
+def _show_signal_name() -> str:
+    """A Windows event per data folder, so a test copy with its own folder never wakes the real one."""
+    return "Local\\Gaus-show-" + hashlib.sha1(str(APP_DIR).lower().encode("utf-8")).hexdigest()[:12]
+
+
+def ask_running_copy_to_show() -> bool:
+    """Opening Gaus again should bring up the copy that's already running. True if it got the message."""
+    if not IS_WINDOWS:
+        return False
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.OpenEventW.restype = wintypes.HANDLE
+    k.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    k.SetEvent.argtypes = [wintypes.HANDLE]
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    for _ in range(30):        # a copy that is still starting up may not be listening yet
+        h = k.OpenEventW(0x0002, False, _show_signal_name())      # EVENT_MODIFY_STATE
+        if h:
+            k.SetEvent(h)
+            k.CloseHandle(h)
+            return True
+        time.sleep(.1)
+    return False
+
+
+def listen_for_show(show: Any) -> None:
+    """Waits, without using any CPU, for another launch of Gaus to ask this copy to show itself."""
+    if not IS_WINDOWS:
+        return
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.CreateEventW.restype = wintypes.HANDLE
+    k.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    h = k.CreateEventW(None, False, False, _show_signal_name())
+    if not h:
+        return
+
+    def wait() -> None:
+        while k.WaitForSingleObject(h, 0xFFFFFFFF) == 0:     # INFINITE; 0 means it was signalled
+            show()
+
+    threading.Thread(target=wait, daemon=True, name="show-signal").start()
+
+
 class InstanceLock:
     """One copy of Gaus at a time. The OS drops the lock if the app dies, so there are no stale lock files."""
 
@@ -4440,7 +4486,9 @@ def main() -> int:
     lock = InstanceLock(LOCK_PATH)
     # right after a self-update the old copy is still shutting down, so wait for it
     if not lock.acquire(15 if "--after-update" in sys.argv else 0.3):
-        message_box(f"{APP_TITLE} is already running (check the system tray).")
+        if "--minimized" in sys.argv or ask_running_copy_to_show():
+            return 0
+        message_box(f"{APP_TITLE} is already running (check the system tray).")    # an older copy that can't be asked
         return 0
     try:
         import webview as wv  # type: ignore
@@ -4530,6 +4578,7 @@ def main() -> int:
 
     threading.Thread(target=tray_main, daemon=True, name="tray").start()
     threading.Thread(target=ctl.background_loop, daemon=True, name="app-updates").start()
+    listen_for_show(ctl.show_window)
 
     def boot() -> None:
         if splash is not None:
